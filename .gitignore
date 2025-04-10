@@ -1,0 +1,67 @@
+# Ignore JetBrains (IntelliJ/WebStorm) IDE settings
+.idea/
+
+# Ignore Node.js dependencies
+backend/node_modules/
+backend/.gitignore
+frontend/node_modules/
+frontend/.gitignore
+
+
+# Ignore environment variables
+backend/.env
+frontend/.env
+
+# Ignore logs
+backend/logs/
+backend/npm-debug.log*
+backend/yarn-debug.log*
+backend/yarn-error.log*
+frontend/logs/
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+
+# Ignore build artifacts
+backend/dist/
+backend/build/
+frontend/dist/
+frontend/build/
+
+
+# dependencies
+node_modules/
+
+# expo
+frontend/.expo/
+frontend/web-build/
+frontend/expo-env.d.ts
+
+# native
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macos
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+# Ignore OS-specific files
+Thumbs.db
+
