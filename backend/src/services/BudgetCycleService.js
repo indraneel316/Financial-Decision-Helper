@@ -3,13 +3,13 @@ import Transaction from "../models/Transaction.js";
 
 export const createBudget = async (budgetData) => {
 
-    const budgetCycleId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-
-    const budgetInputData = {
-        ...budgetData,
-        budgetCycleId
-    };
-    const budget = new Budget(budgetInputData);
+    // const budgetCycleId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    //
+    // const budgetInputData = {
+    //     ...budgetData,
+    //     budgetCycleIdd
+    // };
+    const budget = new Budget(budgetData);
     await budget.save();
     return budget;
 };
@@ -17,6 +17,7 @@ export const createBudget = async (budgetData) => {
 export const updateBudget = async (budgetCycleId, updates) => {
     return Budget.findOneAndUpdate({budgetCycleId}, updates, {
         new: true,
+        upsert: false
     });
 };
 

@@ -88,6 +88,8 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const value = { user, token, loading, error, login, logout, updateProfile };
+  // Include setUser in the context value
+  const value = { user, setUser, token, loading, error, login, logout, updateProfile };
+
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

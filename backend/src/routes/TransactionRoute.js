@@ -1,7 +1,7 @@
 import express from 'express';
 import {
     createTransactionHandler,
-    deleteTransactionHandler,
+    deleteTransactionHandler, getTransactionsForBudgetCycleId,
     getTransactionsHandler,
     updateTransactionHandler
 } from '../controllers/transactionController.js';
@@ -13,5 +13,7 @@ router.delete('/:transactionId', deleteTransactionHandler);
 router.put('/:transactionId', updateTransactionHandler);
 
 router.get('/:userId', getTransactionsHandler);
+router.get('/budget-cycle/:budgetCycleId', getTransactionsForBudgetCycleId);
+
 
 export default router;

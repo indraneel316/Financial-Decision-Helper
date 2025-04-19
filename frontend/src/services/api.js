@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Base URL for the backend API
-const API_BASE_URL = 'http://134.154.70.223:5001/api';
+const API_BASE_URL = 'http://10.0.0.115:5001/api';
 
 // API service for user-related operations
 export const userService = {
@@ -109,7 +109,7 @@ export const budgetService = {
   // Delete a budget cycle
   deleteBudgetCycle: async (cycleId, token) => {
     try {
-      const response = await axios.delete(`${API_BASE_URL}/budgetcycles/${cycleId}`, {
+      const response = await axios.delete(`${API_BASE_URL}/budget-cycles/${cycleId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -120,23 +120,31 @@ export const budgetService = {
 };
 
 export const transactionService = {
-  createTransaction: async (transactionData, token) => {
+  createTransaction: async (data, token) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/transactions`, transactionData, {
-        headers: { Authorization: `Bearer ${token}` }
+      const response = await axios.post(`${API_BASE_URL}/transactions`, data, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       });
-      return response.data;
+      return response;
     } catch (error) {
-      throw error.response ? error.response.data : error.message;
+      console.log("transactionService error:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      throw error;
     }
   },
-
   // Get all transactions for a budget cycle
   getTransactionsByBudgetCycle: async (cycleId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/transactions/budgetcycle/${cycleId}`, {
+      const response = await axios.get(`${API_BASE_URL}/transactions/budget-cycle/${cycleId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      console.log("getTransactionsByBudgetCycle response:", response.status, response.data);
       return response.data;
     } catch (error) {
       throw error.response ? error.response.data : error.message;
@@ -167,10 +175,9 @@ export const transactionService = {
 
   updateTransaction: async (transactionId, transactionData, token) => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/transactions/${transactionId}`, transactionData, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      return response.data;
+      return await axios.put(`${API_BASE_URL}/transactions/${transactionId}`, transactionData, {
+        headers: {Authorization: `Bearer ${token}`}
+      })
     } catch (error) {
       throw error.response ? error.response.data : error.message;
     }

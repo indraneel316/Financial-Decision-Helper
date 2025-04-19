@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import RNPickerSelect from 'react-native-picker-select';
 import Icon from 'react-native-vector-icons/MaterialIcons';
-import AsyncStorage from '@react-native-async-storage/async-storage'; // Import AsyncStorage
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 import { budgetService, transactionService } from '../services/api';
 
@@ -22,10 +22,11 @@ const cycleDurations = [
 ];
 
 const BudgetCycleScreen = ({ navigation, route }) => {
-  const { user, token, setUser } = useAuth(); // Assume setUser is available from useAuth
+  const { user, token, setUser } = useAuth();
   const existingCycle = route.params?.cycle;
 
-  console.log('Component mounted - User:', user, 'Token:', token);
+  console.log('Debug: existingCycle on mount:', existingCycle);
+  console.log('Debug: user.cycle on mount:', user?.cycle);
 
   const initialBudgetData = {
     cycleName: '',
@@ -50,11 +51,11 @@ const BudgetCycleScreen = ({ navigation, route }) => {
   const [budgetData, setBudgetData] = useState(
       existingCycle
           ? {
-            cycleName: existingCycle.cycleName,
-            startDate: existingCycle.startDate,
-            budgetCycleDuration: existingCycle.budgetCycleDuration,
-            totalMoneyAllocation: existingCycle.totalMoneyAllocation.toString(),
-            savingsTarget: existingCycle.savingsTarget.toString(),
+            cycleName: existingCycle.cycleName || '',
+            startDate: existingCycle.startDate || new Date().toISOString().split('T')[0],
+            budgetCycleDuration: existingCycle.budgetCycleDuration || 'monthly',
+            totalMoneyAllocation: existingCycle.totalMoneyAllocation?.toString() || '',
+            savingsTarget: existingCycle.savingsTarget?.toString() || '',
             categories: [
               { name: 'Entertainment', allocation: existingCycle.allocatedEntertainment?.toString() || '', id: '1' },
               { name: 'Groceries', allocation: existingCycle.allocatedGroceries?.toString() || '', id: '2' },
@@ -74,8 +75,12 @@ const BudgetCycleScreen = ({ navigation, route }) => {
   const [isEditing, setIsEditing] = useState(!!existingCycle);
 
   useEffect(() => {
+    console.log('Debug: useEffect triggered, existingCycle:', existingCycle, 'isEditing:', isEditing);
     if (existingCycle) {
+      setIsEditing(true);
       checkTransactions();
+    } else {
+      setIsEditing(false);
     }
   }, [existingCycle]);
 
@@ -121,7 +126,8 @@ const BudgetCycleScreen = ({ navigation, route }) => {
   const checkTransactions = async () => {
     if (!existingCycle) return false;
     try {
-      const transactions = await transactionService.getTransactionsByBudgetCycle(existingCycle._id, token);
+      const transactions = await transactionService.getTransactionsByBudgetCycle(existingCycle.budgetCycleId, token);
+      console.log('Debug: checkTransactions result:', transactions.length > 0);
       return transactions.length > 0;
     } catch (error) {
       console.error('Error checking transactions:', error);
@@ -136,134 +142,138 @@ const BudgetCycleScreen = ({ navigation, route }) => {
   };
 
   const getActiveCycle = () => {
-    if (!user.cycle || !Array.isArray(user.cycle)) return null;
+    if (!user.cycle || !Array.isArray(user.cycle)) {
+      console.log('Debug: getActiveCycle - no user.cycle or not an array:', user.cycle);
+      return null;
+    }
     const currentDate = new Date();
-    return user.cycle.find((cycle) => new Date(cycle.endDate) > currentDate) || null;
+    const activeCycle = user.cycle.find((cycle) => {
+      // Handle malformed cycle entries (e.g., { budget: {...} })
+      const cycleData = cycle.budget || cycle;
+      return cycleData.endDate && new Date(cycleData.endDate) > currentDate;
+    });
+    console.log('Debug: getActiveCycle - result:', activeCycle ? (activeCycle.budget || activeCycle) : null);
+    return activeCycle ? (activeCycle.budget || activeCycle) : null;
   };
 
   const handleSaveBudget = async () => {
-    console.log('handleSaveBudget triggered');
-
+    console.log('Debug: handleSaveBudget - start, isEditing:', isEditing, 'budgetData:', budgetData);
     if (!isEditing && hasActiveCycle()) {
-      console.log('Active cycle exists:', getActiveCycle());
       Alert.alert('Error', 'You cannot create a new budget cycle while an active one exists.');
       return;
     }
 
-    console.log('Current budgetData:', budgetData);
-
     if (!budgetData.cycleName || !budgetData.totalMoneyAllocation || !budgetData.savingsTarget) {
-      console.log('Validation failed: Missing required fields', budgetData);
       Alert.alert('Missing Information', 'Please fill in all required fields (Cycle Name, Total Money Allocation, and Savings Target)');
       return;
     }
 
-    console.log('Parsing values...');
     const totalMoneyAllocation = parseFloat(budgetData.totalMoneyAllocation) || 0;
     const savingsTarget = parseFloat(budgetData.savingsTarget) || 0;
     const allocatedAmount = budgetData.categories.reduce(
         (sum, category) => sum + (parseFloat(category.allocation) || 0),
         0
     );
-    console.log('Parsed values:', { totalMoneyAllocation, savingsTarget, allocatedAmount });
 
     if (totalMoneyAllocation <= 0) {
-      console.log('Validation failed: Total Money Allocation <= 0', totalMoneyAllocation);
       Alert.alert('Invalid Input', 'Total Money Allocation must be greater than zero.');
       return;
     }
 
     if (savingsTarget < 0) {
-      console.log('Validation failed: Savings Target < 0', savingsTarget);
       Alert.alert('Invalid Input', 'Savings Target cannot be negative.');
       return;
     }
 
     if (savingsTarget > totalMoneyAllocation) {
-      console.log('Validation failed: Savings Target > Total Money Allocation', { savingsTarget, totalMoneyAllocation });
       Alert.alert('Invalid Input', 'Savings Target cannot exceed Total Money Allocation.');
       return;
     }
 
     if (allocatedAmount > totalMoneyAllocation) {
-      console.log('Validation failed: Allocated Amount > Total Money Allocation', { allocatedAmount, totalMoneyAllocation });
       Alert.alert('Budget Exceeded', 'The sum of category allocations exceeds the total money allocation.');
       return;
     }
 
-    console.log('Validation passed, building payload...');
-
     try {
-      console.log('Constructing startDate...');
       const startDate = new Date(budgetData.startDate);
       if (isNaN(startDate.getTime())) throw new Error('Invalid startDate');
-      console.log('startDate:', startDate.toISOString().split('T')[0]);
 
-      console.log('Constructing endDate...');
       const endDate = calculateEndDate();
-      console.log('endDate:', endDate);
 
-      console.log('Mapping categories...');
       const categoryAllocations = budgetData.categories.reduce((acc, cat) => {
         const key = `allocated${cat.name.replace(/\s+/g, '')}`;
         const value = parseFloat(cat.allocation) || 0;
         acc[key] = value;
         return acc;
       }, {});
-      console.log('Category allocations:', categoryAllocations);
 
       const budgetToSave = {
         userId: user.userId,
-        budgetCycleId: Date.now().toString(), // This should ideally come from the backend
         cycleName: budgetData.cycleName,
         budgetCycleDuration: budgetData.budgetCycleDuration,
         startDate: startDate.toISOString().split('T')[0],
         endDate: endDate,
-        totalMoneyAllocation: totalMoneyAllocation,
-        savingsTarget: savingsTarget,
+        totalMoneyAllocation,
+        savingsTarget,
         ...categoryAllocations,
       };
 
-      console.log('Attempting to save budget with payload:', budgetToSave);
-      console.log('Token:', token);
+      let updatedCycle;
 
       if (isEditing && existingCycle) {
+        budgetToSave.budgetCycleId = existingCycle.budgetCycleId;
         const hasTransactions = await checkTransactions();
-        console.log('Has transactions:', hasTransactions);
         if (hasTransactions) {
           Alert.alert('Warning', 'This cycle has transactions. Only name, savings target, and allocations can be edited.');
           delete budgetToSave.startDate;
           delete budgetToSave.endDate;
         }
-        budgetToSave.budgetCycleId = existingCycle.budgetCycleId
-        const updatedCycle = await budgetService.updateBudgetCycle(existingCycle.budgetCycleId, budgetToSave, token);
-        console.log('Updated budget cycle:', updatedCycle);
-        Alert.alert('Success', 'Budget cycle updated successfully', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
+        const response = await budgetService.updateBudgetCycle(budgetToSave.budgetCycleId, budgetToSave, token);
+        updatedCycle = response.budget || response; // Extract flat cycle object
+        console.log('Debug: handleSaveBudget - updatedCycle:', updatedCycle);
       } else {
-        const savedCycle = await budgetService.createBudgetCycle(budgetToSave, token);
-        console.log('Saved budget cycle:', savedCycle);
-
-        // Update user.cycle in frontend
-        const updatedUser = {
-          ...user,
-          cycle: user.cycle && Array.isArray(user.cycle) ? [...user.cycle, savedCycle] : [savedCycle],
-        };
-        setUser(updatedUser); // Update AuthContext
-
-        // Persist to AsyncStorage
-        await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
-        console.log('User updated in AsyncStorage:', updatedUser);
-
-        Alert.alert('Success', 'Budget cycle created successfully', [
-          { text: 'OK', onPress: () => navigation.navigate('Home') },
-        ]);
+        budgetToSave.budgetCycleId = Date.now().toString();
+        const response = await budgetService.createBudgetCycle(budgetToSave, token);
+        updatedCycle = response.budget || response; // Extract flat cycle object
+        console.log('Debug: handleSaveBudget - createdCycle:', updatedCycle);
       }
+
+      // Ensure updatedCycle is a flat object
+      if (!updatedCycle.budgetCycleId) {
+        throw new Error('Invalid cycle data returned from API');
+      }
+
+      // Replace the old cycle or append the new one
+      const updatedUser = {
+        ...user,
+        cycle: user.cycle && Array.isArray(user.cycle)
+            ? [
+              ...user.cycle.filter(c => c.budgetCycleId !== updatedCycle.budgetCycleId),
+              updatedCycle
+            ]
+            : [updatedCycle],
+      };
+
+      console.log('Debug: handleSaveBudget - updatedUser.cycle:', updatedUser.cycle);
+      await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+      console.log('Debug: handleSaveBudget - AsyncStorage saved');
+      const storedUser = await AsyncStorage.getItem('user');
+      console.log('Debug: handleSaveBudget - AsyncStorage verify user.cycle:', JSON.parse(storedUser).cycle);
+
+      setUser(updatedUser);
+      console.log('Debug: handleSaveBudget - setUser called');
+      setIsEditing(false);
+      console.log('Debug: handleSaveBudget - setIsEditing(false) called');
+      navigation.setParams({ cycle: null });
+      console.log('Debug: handleSaveBudget - navigation.setParams called');
+
+      Alert.alert('Success', `Budget cycle ${isEditing ? 'updated' : 'created'} successfully`, [
+        { text: 'OK', onPress: () => navigation.navigate('Home') },
+      ]);
     } catch (error) {
-      console.error('Error in handleSaveBudget:', error);
-      const errorMessage = error.response?.data?.error || error.message || 'An unknown error occurred';
-      Alert.alert('Error', `Failed to ${isEditing ? 'update' : 'save'} budget cycle: ${errorMessage}`);
+      console.error('Debug: handleSaveBudget - error:', error);
+      Alert.alert('Error', `Failed to ${isEditing ? 'update' : 'save'} budget cycle: ${error.message || 'Unknown error'}`);
     }
   };
 
@@ -278,15 +288,32 @@ const BudgetCycleScreen = ({ navigation, route }) => {
             style: 'destructive',
             onPress: async () => {
               try {
-                const transactions = await transactionService.getTransactionsByBudgetCycle(cycleId, token);
+                const activeCycle = getActiveCycle();
+                const idToDelete = cycleId || (activeCycle && activeCycle.budgetCycleId);
+                if (!idToDelete) {
+                  Alert.alert('Error', 'No budget cycle ID available to delete.');
+                  return;
+                }
+
+                const transactions = await transactionService.getTransactionsByBudgetCycle(idToDelete, token);
                 if (transactions.length > 0) {
                   Alert.alert('Error', 'Cannot delete a cycle with transactions.');
                   return;
                 }
-                await budgetService.deleteBudgetCycle(cycleId, token);
+                await budgetService.deleteBudgetCycle(idToDelete, token);
+
+                const updatedCycles = user.cycle.filter((cycle) => cycle.budgetCycleId !== idToDelete);
+                const updatedUser = { ...user, cycle: updatedCycles };
+                await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+                setUser(updatedUser);
+
                 setBudgetData(initialBudgetData);
                 setIsEditing(false);
-                Alert.alert('Success', 'Budget cycle deleted successfully');
+                navigation.setParams({ cycle: null });
+
+                Alert.alert('Success', 'Budget cycle deleted successfully', [
+                  { text: 'OK', onPress: () => navigation.navigate('Home') },
+                ]);
               } catch (error) {
                 console.error('Error deleting budget cycle:', error);
                 Alert.alert('Error', 'Delete failed: ' + (error.message || 'An unknown error occurred'));
@@ -301,11 +328,11 @@ const BudgetCycleScreen = ({ navigation, route }) => {
     const activeCycle = getActiveCycle();
     if (activeCycle) {
       setBudgetData({
-        cycleName: activeCycle.cycleName,
-        startDate: activeCycle.startDate,
-        budgetCycleDuration: activeCycle.budgetCycleDuration,
-        totalMoneyAllocation: activeCycle.totalMoneyAllocation.toString(),
-        savingsTarget: activeCycle.savingsTarget.toString(),
+        cycleName: activeCycle.cycleName || '',
+        startDate: activeCycle.startDate || new Date().toISOString().split('T')[0],
+        budgetCycleDuration: activeCycle.budgetCycleDuration || 'monthly',
+        totalMoneyAllocation: activeCycle.totalMoneyAllocation?.toString() || '',
+        savingsTarget: activeCycle.savingsTarget?.toString() || '',
         categories: [
           { name: 'Entertainment', allocation: activeCycle.allocatedEntertainment?.toString() || '', id: '1' },
           { name: 'Groceries', allocation: activeCycle.allocatedGroceries?.toString() || '', id: '2' },
@@ -320,13 +347,20 @@ const BudgetCycleScreen = ({ navigation, route }) => {
         ],
       });
       setIsEditing(true);
+      navigation.setParams({ cycle: activeCycle });
+      console.log('Debug: handleEditActiveCycle, set isEditing true, cycle:', activeCycle);
     }
   };
 
   const activeCycle = getActiveCycle();
 
   const renderActiveCycle = () => {
-    if (!activeCycle) return null;
+    if (!activeCycle) {
+      console.log('Debug: renderActiveCycle - no activeCycle');
+      return null;
+    }
+
+    console.log('Debug: renderActiveCycle - rendering with activeCycle:', activeCycle);
 
     const categories = [
       { name: 'Entertainment', value: activeCycle.allocatedEntertainment || 0 },
@@ -352,7 +386,7 @@ const BudgetCycleScreen = ({ navigation, route }) => {
               <TouchableOpacity onPress={handleEditActiveCycle} style={styles.iconButton}>
                 <Icon name="edit" size={24} color="#2196F3" />
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleDeleteBudget(activeCycle._id)} style={styles.iconButton}>
+              <TouchableOpacity onPress={() => handleDeleteBudget(activeCycle.budgetCycleId)} style={styles.iconButton}>
                 <Icon name="delete" size={24} color="#E53935" />
               </TouchableOpacity>
             </View>
@@ -414,14 +448,19 @@ const BudgetCycleScreen = ({ navigation, route }) => {
     );
   };
 
+  console.log('Debug: Before render, activeCycle:', activeCycle, 'isEditing:', isEditing);
+  console.log('Debug: Render condition (activeCycle && !isEditing):', activeCycle && !isEditing);
+
   return (
       <SafeAreaView style={styles.container}>
         <ScrollView contentContainerStyle={styles.scrollContainer}>
           <Text style={styles.screenTitle}>
-            {isEditing ? 'Edit Budget Cycle' : 'Create Budget Cycle'}
+            {isEditing ? 'Edit Budget Cycle' : activeCycle ? 'Active Budget Cycle' : 'Create Budget Cycle'}
           </Text>
 
-          {isEditing || !activeCycle ? (
+          {activeCycle && !isEditing ? (
+              renderActiveCycle()
+          ) : (
               <>
                 <View style={styles.card}>
                   <Text style={styles.sectionTitle}>Budget Cycle Details</Text>
@@ -532,14 +571,15 @@ const BudgetCycleScreen = ({ navigation, route }) => {
                   </Text>
                 </TouchableOpacity>
 
-                {isEditing && (
-                    <TouchableOpacity style={styles.deleteButton} onPress={() => handleDeleteBudget(existingCycle._id)}>
+                {isEditing && existingCycle && (
+                    <TouchableOpacity
+                        style={styles.deleteButton}
+                        onPress={() => handleDeleteBudget(existingCycle.budgetCycleId)}
+                    >
                       <Text style={styles.deleteButtonText}>Delete Budget Cycle</Text>
                     </TouchableOpacity>
                 )}
               </>
-          ) : (
-              renderActiveCycle()
           )}
         </ScrollView>
       </SafeAreaView>
