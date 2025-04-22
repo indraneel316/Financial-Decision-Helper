@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import {
   View,
   Text,
@@ -16,6 +16,98 @@ import {
 import { useAuth } from "../contexts/AuthContext";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { transactionService } from "../services/api";
+import io from "socket.io-client";
+import { debounce } from "lodash";
+
+// Memoized TransactionItem component
+const TransactionItem = memo(
+    ({ item, expandedTransaction, toggleRecommendation, startEditing, handleDeleteTransaction, handleRecommendationSwitch }) => {
+      console.log("Rendering TransactionItem:", {
+        transactionId: item.transactionId,
+        recommendation: item.recommendation,
+        reasoning: item.reasoning,
+        isExpanded: expandedTransaction === item.transactionId,
+      });
+
+      const hasRecommendationAndReasoning =
+          item.recommendation &&
+          item.recommendation !== "Recommendation pending" &&
+          item.reasoning &&
+          item.reasoning !== "Reasoning pending";
+
+      return (
+          <View style={styles.transactionItem}>
+            <TouchableOpacity onPress={() => toggleRecommendation(item.transactionId)}>
+              <View style={styles.transactionHeader}>
+                <Text style={styles.transactionDescription} numberOfLines={1} ellipsizeMode="tail">
+                  {item.purchaseDescription}
+                </Text>
+                <View style={styles.transactionActions}>
+                  <TouchableOpacity onPress={() => startEditing(item)}>
+                    <Icon name="edit" size={20} color="#666" style={styles.actionIcon} />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => handleDeleteTransaction(item.transactionId)}>
+                    <Icon name="delete" size={20} color="#E53935" style={styles.actionIcon} />
+                  </TouchableOpacity>
+                  <Text style={styles.transactionAmount}>
+                    -${parseFloat(item.purchaseAmount).toFixed(2)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.transactionDetails}>
+                <Text style={styles.transactionCategory}>{item.purchaseCategory}</Text>
+                <Text style={styles.transactionDate}>{item.date}</Text>
+              </View>
+              <View style={styles.compactRecommendation}>
+                <Text style={styles.compactRecommendationText}>
+                  {item.recommendation || "Recommendation pending"}
+                </Text>
+                <Text style={styles.compactReasoningText}>
+                  {item.reasoning || "Reasoning pending"}
+                </Text>
+              </View>
+              <Icon
+                  name={expandedTransaction === item.transactionId ? "expand-less" : "expand-more"}
+                  size={24}
+                  color="#666"
+                  style={styles.toggleIcon}
+              />
+            </TouchableOpacity>
+            {expandedTransaction === item.transactionId && (
+                <View style={styles.recommendationContainer}>
+                  <Text style={styles.recommendationTitle}>Recommendation</Text>
+                  <Text style={styles.recommendationText}>
+                    {item.recommendation || "Recommendation pending"}
+                  </Text>
+                  <Text style={styles.recommendationTitle}>Reasoning</Text>
+                  <Text style={styles.recommendationText}>
+                    {item.reasoning || "Reasoning pending"}
+                  </Text>
+                  {hasRecommendationAndReasoning && (
+                      <View style={styles.switchContainer}>
+                        <Text style={styles.switchLabel}>Performed after recommendation?</Text>
+                        <Switch
+                            value={item.isTransactionPerformedAfterRecommendation === "yes"}
+                            onValueChange={(value) => handleRecommendationSwitch(item.transactionId, value)}
+                            trackColor={{ false: "#DDD", true: "#4CAF50" }}
+                            thumbColor="#FFF"
+                        />
+                      </View>
+                  )}
+                </View>
+            )}
+          </View>
+      );
+    },
+    (prevProps, nextProps) => {
+      return (
+          prevProps.item.recommendation === nextProps.item.recommendation &&
+          prevProps.item.reasoning === nextProps.item.reasoning &&
+          prevProps.item.isTransactionPerformedAfterRecommendation === nextProps.item.isTransactionPerformedAfterRecommendation &&
+          prevProps.expandedTransaction === nextProps.expandedTransaction
+      );
+    }
+);
 
 const TransactionScreen = ({ navigation }) => {
   const { user, token } = useAuth();
@@ -24,7 +116,7 @@ const TransactionScreen = ({ navigation }) => {
   const [transactions, setTransactions] = useState([]);
   const [filteredTransactions, setFilteredTransactions] = useState([]);
   const [isAddingTransaction, setIsAddingTransaction] = useState(false);
-  const [isEditingTransaction, setIsEditingTransaction] = useState(null); // Track editing transaction ID
+  const [isEditingTransaction, setIsEditingTransaction] = useState(null);
   const [newTransaction, setNewTransaction] = useState({
     purchaseDescription: "",
     purchaseAmount: "",
@@ -35,12 +127,21 @@ const TransactionScreen = ({ navigation }) => {
       year: "numeric",
     }),
   });
-  const [editTransaction, setEditTransaction] = useState(null); // Track edit form state
+  const [editTransaction, setEditTransaction] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filterCategory, setFilterCategory] = useState("All");
   const [sortBy, setSortBy] = useState("date-desc");
   const [expandedTransaction, setExpandedTransaction] = useState(null);
+  const [socket, setSocket] = useState(null);
+  const [flatListRenderKey, setFlatListRenderKey] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalTransactions, setTotalTransactions] = useState(0);
+  const [limit] = useState(10); // Fixed limit of 10 transactions per page
+
+  const transactionsRef = useRef(transactions);
+  const subscribedIdsRef = useRef(new Set());
 
   const categories = [
     { name: "Entertainment", allocation: "", id: "1" },
@@ -60,124 +161,216 @@ const TransactionScreen = ({ navigation }) => {
     return Math.random().toString(36).substring(2, 15);
   };
 
-  // Dummy recommendation function
-  const generateDummyRecommendation = (transaction) => {
-    const { purchaseCategory, purchaseAmount } = transaction;
-    if (purchaseAmount > 50) {
-      return `High expense of $${purchaseAmount.toFixed(2)} in ${purchaseCategory}. Consider alternatives.`;
-    }
-    return `Reduce spending on ${purchaseCategory} to stay within budget.`;
-  };
+  // Update transactionsRef and force FlatList re-render
+  useEffect(() => {
+    transactionsRef.current = transactions;
+    console.log("Updated transactionsRef:", transactionsRef.current);
+    setFlatListRenderKey((prev) => prev + 1);
+  }, [transactions]);
 
-  // Fetch all transactions
-  const loadTransactions = async (refresh = false) => {
-    if (!user || !token || !currentBudgetCycle?.budgetCycleId) {
-      console.log("loadTransactions validation failed:", {
-        user: !!user,
-        token: !!token,
-        budgetCycleId: currentBudgetCycle?.budgetCycleId,
-      });
-      Alert.alert("Error", "Missing user or budget cycle data");
+  // Debounced WebSocket handler
+  const handleRecommendation = useCallback(
+      debounce((data) => {
+        console.log("Received recommendation:", {
+          transactionId: data.transactionId,
+          recommendationText: data.recommendationText,
+          reasoning: data.reasoning,
+        });
+        setTransactions((prev) => {
+          const updated = prev.map((t) =>
+              t.transactionId === data.transactionId
+                  ? { ...t, recommendation: data.recommendationText, reasoning: data.reasoning }
+                  : t
+          );
+          console.log("Updated transactions:", updated);
+          return [...updated];
+        });
+        setExpandedTransaction(data.transactionId);
+      }, 100),
+      []
+  );
+
+  // Initialize WebSocket
+  useEffect(() => {
+    if (!user || !token) {
+      console.log("WebSocket skipped: missing user or token");
       return;
     }
-    setIsLoading(!refresh);
-    setIsRefreshing(refresh);
-    try {
-      console.log("loadTransactions starting:", {
-        budgetCycleId: currentBudgetCycle.budgetCycleId,
-        token,
-      });
-      const fetchedTransactions = await transactionService.getTransactionsByBudgetCycle(
-          currentBudgetCycle.budgetCycleId,
-          token
-      );
-      console.log("loadTransactions raw response:", fetchedTransactions);
-      const mappedTransactions = Array.isArray(fetchedTransactions)
-          ? fetchedTransactions.map((t) => ({
-            transactionId: t.transactionId,
-            budgetCycleId: t.budgetCycleId,
-            userId: t.userId,
-            purchaseDescription: t.purchaseDescription,
-            purchaseAmount: t.purchaseAmount,
-            purchaseCategory: t.purchaseCategory,
-            date: new Date(t.transactionTimestamp).toLocaleDateString("en-US", {
-              month: "2-digit",
-              day: "2-digit",
-              year: "numeric",
-            }),
-            isTransactionPerformedAfterRecommendation:
-            t.isTransactionPerformedAfterRecommendation,
-          }))
-          : [];
-      console.log("Mapped transactions:", mappedTransactions);
-      const transactionsWithRecs = mappedTransactions.map((t) => ({
-        ...t,
-        recommendation: generateDummyRecommendation(t),
-      }));
-      setTransactions(transactionsWithRecs);
-      applyFiltersAndSort(transactionsWithRecs, filterCategory, sortBy);
-    } catch (error) {
-      console.log("loadTransactions error:", {
-        message: error.message,
-        code: error.code,
-        response: error.response?.data,
-        status: error.response?.status,
-        config: error.config,
-      });
-      Alert.alert(
-          "Error",
-          "Failed to fetch transactions: " +
-          (error.response?.data?.message || error.message)
-      );
-      setTransactions([]);
-      setFilteredTransactions([]);
-    } finally {
-      setIsLoading(false);
-      setIsRefreshing(false);
-    }
-  };
 
-  // Apply client-side filtering and sorting
-  const applyFiltersAndSort = (trans, category, sort) => {
-    let filtered = [...trans];
-    if (category !== "All") {
-      filtered = filtered.filter((t) => t.purchaseCategory === category);
-    }
-    filtered.sort((a, b) => {
-      if (sort === "date-asc") {
-        return new Date(a.date) - new Date(b.date);
-      } else if (sort === "date-desc") {
-        return new Date(b.date) - new Date(a.date);
-      } else if (sort === "amount-asc") {
-        return a.purchaseAmount - b.purchaseAmount;
-      } else if (sort === "amount-desc") {
-        return b.purchaseAmount - a.purchaseAmount;
-      }
-      return 0;
+    const socketInstance = io("http://10.0.0.115:5001", {
+      transports: ["websocket"],
+      auth: { token },
+      reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
-    setFilteredTransactions(filtered);
-  };
+    setSocket(socketInstance);
+
+    socketInstance.on("connect", () => {
+      console.log("WebSocket connected");
+      transactionsRef.current.forEach((t) => {
+        if (!subscribedIdsRef.current.has(t.transactionId)) {
+          socketInstance.emit("subscribe", `recommendation:${t.transactionId}`);
+          subscribedIdsRef.current.add(t.transactionId);
+          console.log("Subscribed to recommendation channel:", {
+            transactionId: t.transactionId,
+          });
+        }
+      });
+    });
+
+    socketInstance.on("recommendation", handleRecommendation);
+
+    socketInstance.on("connect_error", (error) => {
+      console.error("WebSocket connection error:", { message: error.message });
+      Alert.alert("Connection Error", "Failed to connect to recommendation service.");
+    });
+
+    return () => {
+      socketInstance.disconnect();
+      console.log("WebSocket disconnected");
+      subscribedIdsRef.current.clear();
+    };
+  }, [user, token, handleRecommendation]);
+
+  // Subscribe to new transactions
+  useEffect(() => {
+    if (!socket) return;
+    transactions.forEach((t) => {
+      if (!subscribedIdsRef.current.has(t.transactionId)) {
+        socket.emit("subscribe", `recommendation:${t.transactionId}`);
+        subscribedIdsRef.current.add(t.transactionId);
+        console.log("Subscribed to recommendation channel:", {
+          transactionId: t.transactionId,
+        });
+      }
+    });
+  }, [socket, transactions]);
+
+  // Apply filters and sort
+  const applyFiltersAndSort = useCallback(
+      (trans, category, sort) => {
+        let filtered = [...trans];
+        if (category !== "All") {
+          filtered = filtered.filter((t) => t.purchaseCategory === category);
+        }
+        filtered.sort((a, b) => {
+          if (sort === "date-asc") {
+            return new Date(a.date) - new Date(b.date);
+          } else if (sort === "date-desc") {
+            return new Date(b.date) - new Date(a.date);
+          } else if (sort === "amount-asc") {
+            return a.purchaseAmount - b.purchaseAmount;
+          } else if (sort === "amount-desc") {
+            return b.purchaseAmount - a.purchaseAmount;
+          }
+          return 0;
+        });
+        setFilteredTransactions([...filtered]);
+        console.log("Applied filters and sort, new filteredTransactions:", filtered);
+      },
+      []
+  );
+
+  useEffect(() => {
+    applyFiltersAndSort(transactions, filterCategory, sortBy);
+  }, [transactions, filterCategory, sortBy, applyFiltersAndSort]);
+
+  // Log filteredTransactions changes
+  useEffect(() => {
+    console.log("filteredTransactions changed:", filteredTransactions);
+  }, [filteredTransactions]);
+
+  // Fetch transactions with pagination
+  const loadTransactions = useCallback(
+      async (page = 1, refresh = false) => {
+        if (!user || !token || !currentBudgetCycle?.budgetCycleId) {
+          console.log("loadTransactions validation failed:", {
+            user: !!user,
+            token: !!token,
+            budgetCycleId: currentBudgetCycle?.budgetCycleId,
+          });
+          Alert.alert("Error", "Missing user or budget cycle data");
+          return;
+        }
+        setIsLoading(!refresh);
+        setIsRefreshing(refresh);
+        try {
+          console.log("loadTransactions starting:", {
+            budgetCycleId: currentBudgetCycle.budgetCycleId,
+            page,
+            limit,
+          });
+          const response = await transactionService.getTransactionsByBudgetCycle(
+              currentBudgetCycle.budgetCycleId,
+              token,
+              page,
+              limit
+          );
+          console.log("loadTransactions raw response:", response);
+          const { transactions: fetchedTransactions, pagination } = response;
+          const mappedTransactions = Array.isArray(fetchedTransactions)
+              ? fetchedTransactions.map((t) => ({
+                transactionId: t.transactionId,
+                budgetCycleId: t.budgetCycleId,
+                userId: t.userId,
+                purchaseDescription: t.purchaseDescription,
+                purchaseAmount: t.purchaseAmount,
+                purchaseCategory: t.purchaseCategory,
+                date: new Date(t.transactionTimestamp).toLocaleDateString("en-US", {
+                  month: "2-digit",
+                  day: "2-digit",
+                  year: "numeric",
+                }),
+                isTransactionPerformedAfterRecommendation:
+                    t.isTransactionPerformedAfterRecommendation || "no",
+                recommendation: t.recommendation || null,
+                reasoning: t.reasoning || null,
+              }))
+              : [];
+          console.log("Mapped transactions:", mappedTransactions);
+          setTransactions(mappedTransactions);
+          setCurrentPage(pagination.currentPage);
+          setTotalPages(pagination.totalPages);
+          setTotalTransactions(pagination.totalTransactions);
+        } catch (error) {
+          console.error("loadTransactions error:", {
+            message: error.message,
+            code: error.code,
+            response: error.response?.data,
+            status: error.response?.status,
+          });
+          Alert.alert("Error", "Failed to fetch transactions: " + (error.message || "Unknown error"));
+          setTransactions([]);
+          setFilteredTransactions([]);
+          setTotalPages(1);
+          setTotalTransactions(0);
+        } finally {
+          setIsLoading(false);
+          setIsRefreshing(false);
+        }
+      },
+      [user, token, currentBudgetCycle, limit]
+  );
 
   const handleFilterChange = (category) => {
     setFilterCategory(category);
-    applyFiltersAndSort(transactions, category, sortBy);
   };
 
   const handleSortChange = (sort) => {
     setSortBy(sort);
-    applyFiltersAndSort(transactions, filterCategory, sort);
   };
 
   useEffect(() => {
-    loadTransactions();
-  }, [user, token, currentBudgetCycle]);
+    loadTransactions(currentPage);
+  }, [loadTransactions, currentPage]);
 
   const handleChange = (field, value) => {
-    setNewTransaction({ ...newTransaction, [field]: value });
+    setNewTransaction((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleEditChange = (field, value) => {
-    setEditTransaction({ ...editTransaction, [field]: value });
+    setEditTransaction((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleAddTransaction = async () => {
@@ -209,24 +402,32 @@ const TransactionScreen = ({ navigation }) => {
         purchaseCategory: newTransaction.purchaseCategory,
         date: newTransaction.date,
         transactionId: generateTransactionId(),
+        isTransactionPerformedAfterRecommendation: "no",
       };
-      console.log("TRANSACTION COOKED DATA:", transactionData);
-      const response = await transactionService.createTransaction(
-          transactionData,
-          token
-      );
-      console.log("TRANSACTION DATA:", response.data);
+      console.log("Adding transaction:", transactionData);
+      const response = await transactionService.createTransaction(transactionData, token);
+      console.log("Transaction created:", response.data);
       const newTrans = {
         ...response.data.transaction,
-        recommendation: generateDummyRecommendation({
-          ...response.data.transaction,
-          purchaseAmount,
-          purchaseCategory: newTransaction.purchaseCategory,
+        recommendation: null,
+        reasoning: null,
+        isTransactionPerformedAfterRecommendation:
+            response.data.transaction.isTransactionPerformedAfterRecommendation || "no",
+        date: new Date(response.data.transaction.transactionTimestamp).toLocaleDateString("en-US", {
+          month: "2-digit",
+          day: "2-digit",
+          year: "numeric",
         }),
       };
-      const updatedTransactions = [newTrans, ...transactions];
-      setTransactions(updatedTransactions);
-      applyFiltersAndSort(updatedTransactions, filterCategory, sortBy);
+      // Add to current page if there's space, otherwise reset to page 1
+      if (transactions.length < limit) {
+        setTransactions((prev) => [newTrans, ...prev]);
+        setTotalTransactions((prev) => prev + 1);
+        setTotalPages(Math.ceil((totalTransactions + 1) / limit));
+      } else {
+        setCurrentPage(1);
+        loadTransactions(1);
+      }
       setNewTransaction({
         purchaseDescription: "",
         purchaseAmount: "",
@@ -241,15 +442,12 @@ const TransactionScreen = ({ navigation }) => {
       setExpandedTransaction(newTrans.transactionId);
       Alert.alert("Success", "Transaction added successfully");
     } catch (error) {
-      console.log("Create transaction error:", {
+      console.error("Create transaction error:", {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
       });
-      Alert.alert(
-          "Error",
-          error.response?.data?.message || "Failed to add transaction"
-      );
+      Alert.alert("Error", error.response?.data?.message || "Failed to add transaction");
     }
   };
 
@@ -274,11 +472,7 @@ const TransactionScreen = ({ navigation }) => {
     }
 
     try {
-      // Find original transaction
-      const original = transactions.find(
-          (t) => t.transactionId === editTransaction.transactionId
-      );
-      // Only send changed fields
+      const original = transactions.find((t) => t.transactionId === editTransaction.transactionId);
       const updatedFields = {};
       if (editTransaction.purchaseDescription !== original.purchaseDescription) {
         updatedFields.purchaseDescription = editTransaction.purchaseDescription;
@@ -307,93 +501,119 @@ const TransactionScreen = ({ navigation }) => {
         return;
       }
 
-      console.log("EDIT TRANSACTION DATA:", updatedFields);
+      console.log("Editing transaction:", updatedFields);
       const response = await transactionService.updateTransaction(
           editTransaction.transactionId,
           updatedFields,
           token
       );
-      console.log("EDIT TRANSACTION RESPONSE:", response.data);
+      console.log("Transaction updated:", response.data);
       const updatedTrans = {
         ...response.data.transaction,
-        recommendation: generateDummyRecommendation({
-          ...response.data.transaction,
-          purchaseAmount,
-          purchaseCategory: editTransaction.purchaseCategory,
+        recommendation: response.data.transaction.recommendation || null,
+        reasoning: response.data.transaction.reasoning || null,
+        isTransactionPerformedAfterRecommendation:
+            response.data.transaction.isTransactionPerformedAfterRecommendation || "no",
+        date: new Date(response.data.transaction.transactionTimestamp).toLocaleDateString("en-US", {
+          month: "2-digit",
+          day: "2-digit",
+          year: "numeric",
         }),
       };
-      const updatedTransactions = transactions.map((t) =>
-          t.transactionId === updatedTrans.transactionId ? updatedTrans : t
+      setTransactions((prev) =>
+          prev.map((t) => (t.transactionId === updatedTrans.transactionId ? updatedTrans : t))
       );
-      setTransactions(updatedTransactions);
-      applyFiltersAndSort(updatedTransactions, filterCategory, sortBy);
       setIsEditingTransaction(null);
       setEditTransaction(null);
+      setExpandedTransaction(updatedTrans.transactionId);
       Alert.alert("Success", "Transaction updated successfully");
     } catch (error) {
-      console.log("Edit transaction error:", {
+      console.error("Edit transaction error:", {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
       });
-      Alert.alert(
-          "Error",
-          error.response?.data?.message || "Failed to update transaction"
-      );
+      Alert.alert("Error", error.response?.data?.message || "Failed to update transaction");
     }
   };
 
   const handleDeleteTransaction = async (transactionId) => {
-    Alert.alert(
-        "Confirm Delete",
-        "Are you sure you want to delete this transaction?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                console.log("DELETE TRANSACTION:", { transactionId });
-                await transactionService.deleteTransaction(transactionId, token);
-                const updatedTransactions = transactions.filter(
-                    (t) => t.transactionId !== transactionId
-                );
-                setTransactions(updatedTransactions);
-                applyFiltersAndSort(updatedTransactions, filterCategory, sortBy);
-                Alert.alert("Success", "Transaction deleted successfully");
-              } catch (error) {
-                console.log("Delete transaction error:", {
-                  message: error.message,
-                  response: error.response?.data,
-                  status: error.response?.status,
-                });
-                Alert.alert(
-                    "Error",
-                    error.response?.data?.message || "Failed to delete transaction"
-                );
-              }
-            },
-          },
-        ]
-    );
+    Alert.alert("Confirm Delete", "Are you sure you want to delete this transaction?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Delete",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            console.log("Deleting transaction:", { transactionId });
+            await transactionService.deleteTransaction(transactionId, token);
+            setTransactions((prev) => prev.filter((t) => t.transactionId !== transactionId));
+            setTotalTransactions((prev) => prev - 1);
+            setTotalPages(Math.ceil((totalTransactions - 1) / limit));
+            if (socket) {
+              socket.emit("unsubscribe", `recommendation:${transactionId}`);
+              subscribedIdsRef.current.delete(transactionId);
+              console.log("Unsubscribed from recommendation channel:", { transactionId });
+            }
+            // Reload current page to reflect updated transaction list
+            if (transactions.length === 1 && currentPage > 1) {
+              setCurrentPage((prev) => prev - 1);
+            } else {
+              loadTransactions(currentPage);
+            }
+            Alert.alert("Success", "Transaction deleted successfully");
+          } catch (error) {
+            console.error("Delete transaction error:", {
+              message: error.message,
+              response: error.response?.data,
+              status: error.response?.status,
+            });
+            Alert.alert("Error", error.response?.data?.message || "Failed to delete transaction");
+          }
+        },
+      },
+    ]);
   };
 
   const toggleRecommendation = (id) => {
-    setExpandedTransaction(expandedTransaction === id ? null : id);
+    setExpandedTransaction((prev) => (prev === id ? null : id));
   };
 
-  const handleRecommendationSwitch = (transactionId, value) => {
-    const updatedTransactions = transactions.map((t) =>
-        t.transactionId === transactionId
-            ? {
-              ...t,
-              isTransactionPerformedAfterRecommendation: value ? "yes" : "no",
-            }
-            : t
-    );
-    setTransactions(updatedTransactions);
-    applyFiltersAndSort(updatedTransactions, filterCategory, sortBy);
+  const handleRecommendationSwitch = async (transactionId, value) => {
+    try {
+      const updatedFields = {
+        isTransactionPerformedAfterRecommendation: value ? "yes" : "no",
+      };
+      console.log("Updating recommendation switch:", { transactionId, updatedFields });
+      const response = await transactionService.updateTransaction(
+          transactionId,
+          updatedFields,
+          token
+      );
+      const updatedTrans = {
+        ...response.data.transaction,
+        recommendation: response.data.transaction.recommendation || null,
+        reasoning: response.data.transaction.reasoning || null,
+        isTransactionPerformedAfterRecommendation:
+            response.data.transaction.isTransactionPerformedAfterRecommendation || "no",
+        date: new Date(response.data.transaction.transactionTimestamp).toLocaleDateString("en-US", {
+          month: "2-digit",
+          day: "2-digit",
+          year: "numeric",
+        }),
+      };
+      setTransactions((prev) =>
+          prev.map((t) => (t.transactionId === transactionId ? updatedTrans : t))
+      );
+      setExpandedTransaction(transactionId);
+    } catch (error) {
+      console.error("Recommendation switch error:", {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      Alert.alert("Error", error.response?.data?.message || "Failed to update recommendation status");
+    }
   };
 
   const startEditing = (transaction) => {
@@ -405,74 +625,34 @@ const TransactionScreen = ({ navigation }) => {
       purchaseCategory: transaction.purchaseCategory,
       date: transaction.date,
       isTransactionPerformedAfterRecommendation:
-      transaction.isTransactionPerformedAfterRecommendation,
+          transaction.isTransactionPerformedAfterRecommendation || "no",
     });
   };
 
-  const renderTransactionItem = ({ item }) => (
-      <View style={styles.transactionItem}>
-        <TouchableOpacity onPress={() => toggleRecommendation(item.transactionId)}>
-          <View style={styles.transactionHeader}>
-            <Text
-                style={styles.transactionDescription}
-                numberOfLines={1}
-                ellipsizeMode="tail"
-            >
-              {item.purchaseDescription}
-            </Text>
-            <View style={styles.transactionActions}>
-              <TouchableOpacity onPress={() => startEditing(item)}>
-                <Icon name="edit" size={20} color="#666" style={styles.actionIcon} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                  onPress={() => handleDeleteTransaction(item.transactionId)}
-              >
-                <Icon
-                    name="delete"
-                    size={20}
-                    color="#E53935"
-                    style={styles.actionIcon}
-                />
-              </TouchableOpacity>
-              <Text style={styles.transactionAmount}>
-                -${parseFloat(item.purchaseAmount).toFixed(2)}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.transactionDetails}>
-            <Text style={styles.transactionCategory}>{item.purchaseCategory}</Text>
-            <Text style={styles.transactionDate}>{item.date}</Text>
-          </View>
-          <Icon
-              name={expandedTransaction === item.transactionId ? "expand-less" : "expand-more"}
-              size={24}
-              color="#666"
-              style={styles.toggleIcon}
-          />
-        </TouchableOpacity>
-        {expandedTransaction === item.transactionId && item.recommendation && (
-            <View style={styles.recommendationContainer}>
-              <Text style={styles.recommendationTitle}>Recommendation</Text>
-              <Text style={styles.recommendationText}>{item.recommendation}</Text>
-              <View style={styles.switchContainer}>
-                <Text style={styles.switchLabel}>
-                  Performed after recommendation?
-                </Text>
-                <Switch
-                    value={
-                        item.isTransactionPerformedAfterRecommendation === "yes"
-                    }
-                    onValueChange={(value) =>
-                        handleRecommendationSwitch(item.transactionId, value)
-                    }
-                    trackColor={{ false: "#DDD", true: "#4CAF50" }}
-                    thumbColor="#FFF"
-                />
-              </View>
-            </View>
-        )}
-      </View>
-  );
+  const debugState = () => {
+    console.log("Debug - Current state:", {
+      transactions,
+      filteredTransactions,
+      subscribedIds: Array.from(subscribedIdsRef.current),
+      pagination: { currentPage, totalPages, totalTransactions, limit },
+    });
+    Alert.alert(
+        "Debug Info",
+        `Transactions: ${transactions.length}, Subscribed IDs: ${subscribedIdsRef.current.size}, Page: ${currentPage}/${totalPages}, Total: ${totalTransactions}`
+    );
+  };
+
+  const handlePreviousPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage((prev) => prev - 1);
+    }
+  };
+
+  const handleNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage((prev) => prev + 1);
+    }
+  };
 
   const renderHeader = () => (
       <View style={styles.header}>
@@ -480,14 +660,12 @@ const TransactionScreen = ({ navigation }) => {
         <TouchableOpacity
             style={styles.addButton}
             onPress={() => {
-              setIsAddingTransaction(!isAddingTransaction);
+              setIsAddingTransaction((prev) => !prev);
               setIsEditingTransaction(null);
               setEditTransaction(null);
             }}
         >
-          <Text style={styles.addButtonText}>
-            {isAddingTransaction ? "Cancel" : "+ Add"}
-          </Text>
+          <Text style={styles.addButtonText}>{isAddingTransaction ? "Cancel" : "+ Add"}</Text>
         </TouchableOpacity>
       </View>
   );
@@ -495,25 +673,15 @@ const TransactionScreen = ({ navigation }) => {
   const renderFilters = () => (
       <View style={styles.filterContainer}>
         <Text style={styles.filterLabel}>Filter by:</Text>
-        <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.categoryList}
-        >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryList}>
           {["All", ...categories.map((c) => c.name)].map((category) => (
               <TouchableOpacity
                   key={category}
-                  style={[
-                    styles.categoryButton,
-                    filterCategory === category && styles.categoryButtonActive,
-                  ]}
+                  style={[styles.categoryButton, filterCategory === category && styles.categoryButtonActive]}
                   onPress={() => handleFilterChange(category)}
               >
                 <Text
-                    style={[
-                      styles.categoryButtonText,
-                      filterCategory === category && styles.categoryButtonTextActive,
-                    ]}
+                    style={[styles.categoryButtonText, filterCategory === category && styles.categoryButtonTextActive]}
                 >
                   {category}
                 </Text>
@@ -547,6 +715,31 @@ const TransactionScreen = ({ navigation }) => {
             </Text>
           </TouchableOpacity>
         </View>
+        <TouchableOpacity style={styles.debugButton} onPress={debugState}>
+          <Text style={styles.debugButtonText}>Debug</Text>
+        </TouchableOpacity>
+      </View>
+  );
+
+  const renderPaginationControls = () => (
+      <View style={styles.paginationContainer}>
+        <TouchableOpacity
+            style={[styles.paginationButton, currentPage === 1 && styles.paginationButtonDisabled]}
+            onPress={handlePreviousPage}
+            disabled={currentPage === 1}
+        >
+          <Text style={styles.paginationButtonText}>Previous</Text>
+        </TouchableOpacity>
+        <Text style={styles.paginationText}>
+          Page {currentPage} of {totalPages} ({totalTransactions} transactions)
+        </Text>
+        <TouchableOpacity
+            style={[styles.paginationButton, currentPage === totalPages && styles.paginationButtonDisabled]}
+            onPress={handleNextPage}
+            disabled={currentPage === totalPages}
+        >
+          <Text style={styles.paginationButtonText}>Next</Text>
+        </TouchableOpacity>
       </View>
   );
 
@@ -587,16 +780,14 @@ const TransactionScreen = ({ navigation }) => {
                           key={category.id}
                           style={[
                             styles.categoryButton,
-                            newTransaction.purchaseCategory === category.name &&
-                            styles.categoryButtonActive,
+                            newTransaction.purchaseCategory === category.name && styles.categoryButtonActive,
                           ]}
                           onPress={() => handleChange("purchaseCategory", category.name)}
                       >
                         <Text
                             style={[
                               styles.categoryButtonText,
-                              newTransaction.purchaseCategory === category.name &&
-                              styles.categoryButtonTextActive,
+                              newTransaction.purchaseCategory === category.name && styles.categoryButtonTextActive,
                             ]}
                         >
                           {category.name}
@@ -614,10 +805,7 @@ const TransactionScreen = ({ navigation }) => {
                     onChangeText={(text) => handleChange("date", text)}
                 />
               </View>
-              <TouchableOpacity
-                  style={styles.saveButton}
-                  onPress={handleAddTransaction}
-              >
+              <TouchableOpacity style={styles.saveButton} onPress={handleAddTransaction}>
                 <Text style={styles.saveButtonText}>Save Transaction</Text>
               </TouchableOpacity>
             </View>
@@ -630,9 +818,7 @@ const TransactionScreen = ({ navigation }) => {
                     style={styles.input}
                     placeholder="What did you spend on?"
                     value={editTransaction.purchaseDescription}
-                    onChangeText={(text) =>
-                        handleEditChange("purchaseDescription", text)
-                    }
+                    onChangeText={(text) => handleEditChange("purchaseDescription", text)}
                 />
               </View>
               <View style={styles.inputContainer}>
@@ -657,18 +843,14 @@ const TransactionScreen = ({ navigation }) => {
                           key={category.id}
                           style={[
                             styles.categoryButton,
-                            editTransaction.purchaseCategory === category.name &&
-                            styles.categoryButtonActive,
+                            editTransaction.purchaseCategory === category.name && styles.categoryButtonActive,
                           ]}
-                          onPress={() =>
-                              handleEditChange("purchaseCategory", category.name)
-                          }
+                          onPress={() => handleEditChange("purchaseCategory", category.name)}
                       >
                         <Text
                             style={[
                               styles.categoryButtonText,
-                              editTransaction.purchaseCategory === category.name &&
-                              styles.categoryButtonTextActive,
+                              editTransaction.purchaseCategory === category.name && styles.categoryButtonTextActive,
                             ]}
                         >
                           {category.name}
@@ -686,25 +868,17 @@ const TransactionScreen = ({ navigation }) => {
                     onChangeText={(text) => handleEditChange("date", text)}
                 />
               </View>
-              {editTransaction.recommendation && (
-                  <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Performed after recommendation?</Text>
-                    <Switch
-                        value={
-                            editTransaction.isTransactionPerformedAfterRecommendation ===
-                            "yes"
-                        }
-                        onValueChange={(value) =>
-                            handleEditChange(
-                                "isTransactionPerformedAfterRecommendation",
-                                value ? "yes" : "no"
-                            )
-                        }
-                        trackColor={{ false: "#DDD", true: "#4CAF50" }}
-                        thumbColor="#FFF"
-                    />
-                  </View>
-              )}
+              <View style={styles.inputContainer}>
+                <Text style={styles.label}>Performed after recommendation?</Text>
+                <Switch
+                    value={editTransaction.isTransactionPerformedAfterRecommendation === "yes"}
+                    onValueChange={(value) =>
+                        handleEditChange("isTransactionPerformedAfterRecommendation", value ? "yes" : "no")
+                    }
+                    trackColor={{ false: "#DDD", true: "#4CAF50" }}
+                    thumbColor="#FFF"
+                />
+              </View>
               <View style={styles.buttonContainer}>
                 <TouchableOpacity
                     style={[styles.saveButton, styles.cancelButton]}
@@ -715,10 +889,7 @@ const TransactionScreen = ({ navigation }) => {
                 >
                   <Text style={styles.saveButtonText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                    style={styles.saveButton}
-                    onPress={handleEditTransaction}
-                >
+                <TouchableOpacity style={styles.saveButton} onPress={handleEditTransaction}>
                   <Text style={styles.saveButtonText}>Update Transaction</Text>
                 </TouchableOpacity>
               </View>
@@ -731,26 +902,36 @@ const TransactionScreen = ({ navigation }) => {
                     <ActivityIndicator size="large" color="#4CAF50" />
                   </View>
               ) : (
-                  <FlatList
-                      data={filteredTransactions}
-                      renderItem={renderTransactionItem}
-                      keyExtractor={(item) => item.transactionId.toString()}
-                      contentContainerStyle={styles.transactionList}
-                      ListEmptyComponent={
-                        <View style={styles.emptyContainer}>
-                          <Text style={styles.emptyText}>No transactions yet</Text>
-                          <Text style={styles.emptySubtext}>
-                            Add your first transaction to get started
-                          </Text>
-                        </View>
-                      }
-                      refreshControl={
-                        <RefreshControl
-                            refreshing={isRefreshing}
-                            onRefresh={() => loadTransactions(true)}
-                        />
-                      }
-                  />
+                  <>
+                    <FlatList
+                        data={filteredTransactions}
+                        renderItem={({ item }) => (
+                            <TransactionItem
+                                item={item}
+                                expandedTransaction={expandedTransaction}
+                                toggleRecommendation={toggleRecommendation}
+                                startEditing={startEditing}
+                                handleDeleteTransaction={handleDeleteTransaction}
+                                handleRecommendationSwitch={handleRecommendationSwitch}
+                            />
+                        )}
+                        keyExtractor={(item) => item.transactionId.toString()}
+                        extraData={filteredTransactions}
+                        contentContainerStyle={styles.transactionList}
+                        key={flatListRenderKey}
+                        ListEmptyComponent={
+                          <View style={styles.emptyContainer}>
+                            <Text style={styles.emptyText}>No transactions yet</Text>
+                            <Text style={styles.emptySubtext}>Add your first transaction to get started</Text>
+                          </View>
+                        }
+                        refreshControl={
+                          <RefreshControl refreshing={isRefreshing} onRefresh={() => loadTransactions(1, true)} />
+                        }
+                        onLayout={() => console.log("FlatList rendered with data:", filteredTransactions)}
+                    />
+                    {totalPages > 1 && renderPaginationControls()}
+                  </>
               )}
             </>
         )}
@@ -883,6 +1064,18 @@ const styles = StyleSheet.create({
     color: "#333",
     fontSize: 14,
   },
+  debugButton: {
+    backgroundColor: "#666",
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+    borderRadius: 20,
+    marginTop: 10,
+    alignSelf: "flex-start",
+  },
+  debugButtonText: {
+    color: "#FFF",
+    fontSize: 14,
+  },
   transactionList: {
     padding: 15,
   },
@@ -925,6 +1118,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: 15,
+    paddingBottom: 10,
   },
   transactionCategory: {
     fontSize: 14,
@@ -937,6 +1131,19 @@ const styles = StyleSheet.create({
   transactionDate: {
     fontSize: 14,
     color: "#888",
+  },
+  compactRecommendation: {
+    paddingHorizontal: 15,
+    paddingBottom: 15,
+  },
+  compactRecommendationText: {
+    fontSize: 12,
+    color: "#4CAF50",
+    marginBottom: 5,
+  },
+  compactReasoningText: {
+    fontSize: 12,
+    color: "#666",
   },
   toggleIcon: {
     alignSelf: "center",
@@ -958,7 +1165,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
     lineHeight: 20,
-    marginBottom: 10,
+    marginBottom: 15,
   },
   switchContainer: {
     flexDirection: "row",
@@ -989,6 +1196,33 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  paginationContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 15,
+    backgroundColor: "#FFF",
+    borderTopWidth: 1,
+    borderTopColor: "#EEE",
+  },
+  paginationButton: {
+    backgroundColor: "#4CAF50",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 8,
+  },
+  paginationButtonDisabled: {
+    backgroundColor: "#CCC",
+  },
+  paginationButtonText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  paginationText: {
+    fontSize: 14,
+    color: "#333",
   },
 });
 

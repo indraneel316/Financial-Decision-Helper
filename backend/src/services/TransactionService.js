@@ -1,47 +1,71 @@
 import Transaction from '../models/Transaction.js';
 import BudgetCycle from '../models/BudgetCycle.js';
-
-
-import {processTransactionRecommendationAsync} from './transactionRecommendation.js';
-import {scheduleAnalyticsUpdateForUser} from './scheduleAnalyticsUpdate.js';
-import budgetCycle from "../models/BudgetCycle.js";
+import { processTransactionRecommendationAsync } from './transactionRecommendation.js';
+import { scheduleAnalyticsUpdateForUser } from './scheduleAnalyticsUpdate.js';
 
 /**
  * Create a new transaction and trigger recommendation processing and analytics update asynchronously.
  *
  * @param {Object} transactionData - Data for the new transaction.
+ * @param {Object} io - Socket.IO instance.
  * @returns {Promise<Object>} The saved transaction document.
  */
-export const createTransaction = async (transactionData) => {
+export const createTransaction = async (transactionData, io) => {
+    console.log('createTransaction started:', { transactionData });
 
-    // const transactionId = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-    //
-    // const transactionInput = {
-    //     ...transactionData,
-    //     transactionId // Add the generated transactionId
-    // };
+    try {
+        const transaction = new Transaction(transactionData);
+        await transaction.save();
+        console.log('Transaction saved:', { transactionId: transaction.transactionId });
 
-    const transaction = new Transaction(transactionData);
+        // Trigger recommendation logic asynchronously
+        setImmediate(async () => {
+            try {
+                console.log('Processing recommendation for:', { transactionId: transaction.transactionId });
+                await processTransactionRecommendationAsync(transaction);
+                console.log('Recommendation processed:', { transactionId: transaction.transactionId });
+                if (io && transaction.recommendation) {
+                    console.log('Emitting recommendation via Socket.IO:', { transactionId: transaction.transactionId });
+                    io.to(`recommendation:${transaction.transactionId}`).emit('recommendation', {
+                        transactionId: transaction.transactionId,
+                        recommendationText: transaction.recommendation,
+                        reasoning: transaction.reasoning,
+                    });
+                } else {
+                    console.warn('No recommendation or io missing:', { transactionId: transaction.transactionId });
+                }
+            } catch (error) {
+                console.error('Error processing recommendation:', {
+                    message: error.message,
+                    stack: error.stack,
+                });
+            }
+        });
 
-    await transaction.save();
-    // Trigger the recommendation logic asynchronously.
-    setImmediate(() => {
-        processTransactionRecommendationAsync(transaction);
-    });
-    // Schedule the analytics update 10 minutes later.
-    scheduleAnalyticsUpdateForUser(transaction.userId, transaction.purchaseCategory);
-    return transaction;
+        // Schedule analytics update
+        console.log('Scheduling analytics update:', { userId: transaction.userId, purchaseCategory: transaction.purchaseCategory });
+        scheduleAnalyticsUpdateForUser(transaction.userId, transaction.purchaseCategory);
+
+        return transaction;
+    } catch (error) {
+        console.error('createTransaction error:', {
+            message: error.message,
+            stack: error.stack,
+            transactionData,
+        });
+        throw error;
+    }
 };
 
 /**
  * Update an existing transaction and trigger recommendation processing and analytics update asynchronously.
  *
- * @param {String} transactionId - The transaction document ID.
+ * @param {String} transactionId - The transaction ID.
  * @param {Object} updates - The fields to update.
+ * @param {Object} io - Socket.IO instance.
  * @returns {Promise<Object>} The updated transaction document.
  */
-
-export const updateTransaction = async (transactionId, updates) => {
+export const updateTransaction = async (transactionId, updates, io) => {
     console.log('updateTransaction started:', { transactionId, updates });
 
     try {
@@ -210,8 +234,20 @@ export const updateTransaction = async (transactionId, updates) => {
         console.log('Scheduling transaction recommendation:', { transactionId });
         setImmediate(async () => {
             try {
+                console.log('Processing recommendation for:', { transactionId });
                 await processTransactionRecommendationAsync(transaction);
-                console.log('Transaction recommendation processed successfully');
+                console.log('Recommendation processed:', { transactionId });
+                console.log("TRANSACTION TRACK REASONING ", transaction.reasoning)
+                if (io && transaction.recommendation && transaction.reasoning) {
+                    console.log('Emitting recommendation via Socket.IO:', { transactionId: transaction.transactionId });
+                    io.to(`recommendation:${transaction.transactionId}`).emit('recommendation', {
+                        transactionId: transaction.transactionId,
+                        recommendationText: transaction.recommendation,
+                        reasoning: transaction.reasoning,
+                    });
+                } else {
+                    console.warn('No recommendation or io missing:', { transactionId: transaction.transactionId });
+                }
             } catch (error) {
                 console.error('Error processing transaction recommendation:', {
                     message: error.message,
@@ -233,18 +269,34 @@ export const updateTransaction = async (transactionId, updates) => {
     }
 };
 
-
+/**
+ * Delete an existing transaction and update BudgetCycle.
+ *
+ * @param {String} transactionId - The transaction ID.
+ * @returns {Promise<Object>} The deleted transaction document.
+ */
 export const deleteTransaction = async (transactionId) => {
+    console.log('deleteTransaction started:', { transactionId });
+
     try {
         // Fetch the transaction to be deleted
-        const transaction = await Transaction.findById(transactionId);
-        if (!transaction) throw new Error("Transaction not found");
+        const transaction = await Transaction.findOne({ transactionId });
+        if (!transaction) {
+            console.error('Transaction not found:', { transactionId });
+            throw new Error('Transaction not found');
+        }
+        console.log('Transaction fetched:', { transaction });
 
-        const { purchaseAmount, purchaseCategory, budgetCycleId } = transaction;
+        const { purchaseAmount, purchaseCategory, budgetCycleId, userId } = transaction;
 
         // Fetch the corresponding BudgetCycle
+        console.log('Fetching BudgetCycle:', { budgetCycleId });
         const budgetCycle = await BudgetCycle.findOne({ budgetCycleId });
-        if (!budgetCycle) throw new Error("Budget Cycle not found");
+        if (!budgetCycle) {
+            console.error('Budget Cycle not found:', { budgetCycleId });
+            throw new Error('Budget Cycle not found');
+        }
+        console.log('BudgetCycle fetched:', { budgetCycle });
 
         // Prepare the update for the BudgetCycle
         const update = {};
@@ -252,27 +304,106 @@ export const deleteTransaction = async (transactionId) => {
         // Subtract the purchaseAmount from spentSoFar and categorySpent
         update.$inc = {
             spentSoFar: -Math.min(purchaseAmount, budgetCycle.spentSoFar),
-            [`categorySpent.${purchaseCategory}`]: -Math.min(purchaseAmount, (budgetCycle.categorySpent[purchaseCategory] || 0))
+            [`categorySpent.${purchaseCategory}`]: -Math.min(purchaseAmount, (budgetCycle.categorySpent[purchaseCategory] || 0)),
         };
+        console.log('Preparing BudgetCycle update:', { update });
 
-        // Update the BudgetCycle after deletion
+        // Update the BudgetCycle
+        console.log('Updating BudgetCycle:', { budgetCycleId, update });
         await BudgetCycle.findOneAndUpdate({ budgetCycleId }, update);
+        console.log('BudgetCycle updated successfully');
 
+        // Delete the transaction
+        console.log('Deleting transaction:', { transactionId });
+        await Transaction.deleteOne({ transactionId });
+        console.log('Transaction deleted');
+
+        // Schedule analytics update
+        console.log('Scheduling analytics update:', { userId, purchaseCategory });
         setImmediate(async () => {
-            await scheduleAnalyticsUpdateForUser(transaction.userId, transaction.purchaseCategory);
+            try {
+                await scheduleAnalyticsUpdateForUser(userId, purchaseCategory);
+                console.log('Analytics update scheduled successfully');
+            } catch (error) {
+                console.error('Error scheduling analytics update:', {
+                    message: error.message,
+                    stack: error.stack,
+                });
+            }
         });
 
-        return await Transaction.findByIdAndDelete(transactionId);
+        return transaction;
     } catch (error) {
+        console.error('deleteTransaction error:', {
+            message: error.message,
+            stack: error.stack,
+            transactionId,
+        });
         throw new Error(`Error deleting transaction: ${error.message}`);
     }
-
 };
-export const getTransactionsForCycleId = async (budgetCycleId) => {
 
-    return Transaction.find({budgetCycleId});
-}
+/**
+ * Get paginated transactions for a budget cycle.
+ *
+ * @param {String} budgetCycleId - The budget cycle ID.
+ * @param {Number} page - The page number (1-based).
+ * @param {Number} limit - The number of transactions per page.
+ * @returns {Promise<Object>} Object containing transactions and pagination metadata.
+ */
+export const getTransactionsForCycleId = async (budgetCycleId, page = 1, limit = 10) => {
+    console.log('getTransactionsForCycleId started:', { budgetCycleId, page, limit });
+
+    try {
+        const skip = (page - 1) * limit;
+        const transactions = await Transaction.find({ budgetCycleId })
+            .skip(skip)
+            .limit(limit)
+            .sort({ transactionTimestamp: -1 }); // Sort by newest first
+        const totalTransactions = await Transaction.countDocuments({ budgetCycleId });
+
+        console.log('Transactions fetched:', { count: transactions.length, page, limit, totalTransactions });
+
+        return {
+            transactions,
+            pagination: {
+                currentPage: page,
+                totalPages: Math.ceil(totalTransactions / limit),
+                totalTransactions,
+                limit,
+            },
+        };
+    } catch (error) {
+        console.error('getTransactionsForCycleId error:', {
+            message: error.message,
+            stack: error.stack,
+            budgetCycleId,
+            page,
+            limit,
+        });
+        throw error;
+    }
+};
+
+/**
+ * Get transactions for a user.
+ *
+ * @param {String} userId - The user ID.
+ * @returns {Promise<Array>} Array of transaction documents.
+ */
 export const getTransactions = async (userId) => {
-    return Transaction.find({userId});
+    console.log('getTransactions started:', { userId });
 
+    try {
+        const transactions = await Transaction.find({ userId });
+        console.log('Transactions fetched:', { count: transactions.length });
+        return transactions;
+    } catch (error) {
+        console.error('getTransactions error:', {
+            message: error.message,
+            stack: error.stack,
+            userId,
+        });
+        throw error;
+    }
 };

@@ -17,8 +17,6 @@ export const userService = {
   // Login a user
   login: async (credentials) => {
     try {
-
-
       const response = await axios.post(`${API_BASE_URL}/auth/signin`, credentials);
       console.log("TRACK DATA 2", response.data);
       return response.data;
@@ -42,7 +40,6 @@ export const userService = {
   updateProfile: async (userId, userData, token) => {
     try {
       const response = await axios.put(`${API_BASE_URL}/users/${userId}`, userData);
-
       console.log("RESPONSE TRACK DATA ", response.data);
       return response.data;
     } catch (error) {
@@ -57,13 +54,12 @@ export const budgetService = {
       const response = await axios.post(`${API_BASE_URL}/budget-cycles`, budgetData, {
         headers: {
           Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json', // Explicitly set, though Axios defaults to this
+          'Content-Type': 'application/json',
         },
       });
-      console.log('API response:', response.data); // Add this
+      console.log('API response:', response.data);
       return response.data; // { message: 'Budget created successfully', budget }
     } catch (error) {
-      // Handle backend error format: { error: "message" }
       if (error.response && error.response.data && error.response.data.error) {
         throw new Error(error.response.data.error);
       }
@@ -82,7 +78,6 @@ export const budgetService = {
     }
   },
 
-  // Get a specific budget cycle
   getBudgetCycle: async (cycleId, token) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/budgetcycles/${cycleId}`, {
@@ -94,7 +89,6 @@ export const budgetService = {
     }
   },
 
-  // Update a budget cycle
   updateBudgetCycle: async (cycleId, budgetData, token) => {
     try {
       const response = await axios.put(`${API_BASE_URL}/budget-cycles/${budgetData.budgetCycleId}`, budgetData, {
@@ -106,7 +100,6 @@ export const budgetService = {
     }
   },
 
-  // Delete a budget cycle
   deleteBudgetCycle: async (cycleId, token) => {
     try {
       const response = await axios.delete(`${API_BASE_URL}/budget-cycles/${cycleId}`, {
@@ -138,14 +131,16 @@ export const transactionService = {
       throw error;
     }
   },
-  // Get all transactions for a budget cycle
-  getTransactionsByBudgetCycle: async (cycleId, token) => {
+
+  // Get paginated transactions for a budget cycle
+  getTransactionsByBudgetCycle: async (cycleId, token, page = 1, limit = 10) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/transactions/budget-cycle/${cycleId}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
+        params: { page, limit },
       });
       console.log("getTransactionsByBudgetCycle response:", response.status, response.data);
-      return response.data;
+      return response.data; // Returns { transactions, pagination }
     } catch (error) {
       throw error.response ? error.response.data : error.message;
     }
@@ -176,8 +171,8 @@ export const transactionService = {
   updateTransaction: async (transactionId, transactionData, token) => {
     try {
       return await axios.put(`${API_BASE_URL}/transactions/${transactionId}`, transactionData, {
-        headers: {Authorization: `Bearer ${token}`}
-      })
+        headers: { Authorization: `Bearer ${token}` }
+      });
     } catch (error) {
       throw error.response ? error.response.data : error.message;
     }
@@ -207,7 +202,6 @@ export const recommendationService = {
     }
   },
 
-  // Approve a recommendation
   approveRecommendation: async (recommendationId, token) => {
     try {
       const response = await axios.put(`${API_BASE_URL}/recommendations/${recommendationId}/approve`, {}, {
@@ -219,7 +213,6 @@ export const recommendationService = {
     }
   },
 
-  // Delay a recommendation
   delayRecommendation: async (recommendationId, token) => {
     try {
       const response = await axios.put(`${API_BASE_URL}/recommendations/${recommendationId}/delay`, {}, {
@@ -257,7 +250,6 @@ export const analyticsService = {
     }
   },
 
-  // Get savings progress
   getSavingsProgress: async (userId, token) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/analytics/savings-progress`, {
@@ -270,7 +262,6 @@ export const analyticsService = {
     }
   },
 
-  // Get behavioral insights
   getBehavioralInsights: async (userId, token) => {
     try {
       const response = await axios.get(`${API_BASE_URL}/analytics/behavioral-insights`, {
