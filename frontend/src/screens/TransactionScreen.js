@@ -19,9 +19,24 @@ import { transactionService } from "../services/api";
 import io from "socket.io-client";
 import { debounce } from "lodash";
 
+// Currency formatting utility
+const formatCurrency = (amount, currency) => {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: currency || "USD",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch (error) {
+    console.error("Currency formatting error:", error);
+    return `$${parseFloat(amount).toFixed(2)}`; // Fallback to USD
+  }
+};
+
 // Memoized TransactionItem component
 const TransactionItem = memo(
-    ({ item, expandedTransaction, toggleRecommendation, startEditing, handleDeleteTransaction, handleRecommendationSwitch }) => {
+    ({ item, expandedTransaction, toggleRecommendation, startEditing, handleDeleteTransaction, handleRecommendationSwitch, userCurrency }) => {
       console.log("Rendering TransactionItem:", {
         transactionId: item.transactionId,
         recommendation: item.recommendation,
@@ -50,7 +65,7 @@ const TransactionItem = memo(
                     <Icon name="delete" size={20} color="#E53935" style={styles.actionIcon} />
                   </TouchableOpacity>
                   <Text style={styles.transactionAmount}>
-                    -${parseFloat(item.purchaseAmount).toFixed(2)}
+                    -{formatCurrency(item.purchaseAmount, userCurrency)}
                   </Text>
                 </View>
               </View>
@@ -104,13 +119,15 @@ const TransactionItem = memo(
           prevProps.item.recommendation === nextProps.item.recommendation &&
           prevProps.item.reasoning === nextProps.item.reasoning &&
           prevProps.item.isTransactionPerformedAfterRecommendation === nextProps.item.isTransactionPerformedAfterRecommendation &&
-          prevProps.expandedTransaction === nextProps.expandedTransaction
+          prevProps.expandedTransaction === nextProps.expandedTransaction &&
+          prevProps.userCurrency === nextProps.userCurrency
       );
     }
 );
 
 const TransactionScreen = ({ navigation }) => {
   const { user, token } = useAuth();
+  const userCurrency = user?.currency || "USD"; // Fallback to USD
   const currentBudgetCycle = user?.cycle?.[0];
 
   const [transactions, setTransactions] = useState([]);
@@ -138,7 +155,7 @@ const TransactionScreen = ({ navigation }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalTransactions, setTotalTransactions] = useState(0);
-  const [limit] = useState(10); // Fixed limit of 10 transactions per page
+  const [limit] = useState(10);
 
   const transactionsRef = useRef(transactions);
   const subscribedIdsRef = useRef(new Set());
@@ -156,19 +173,16 @@ const TransactionScreen = ({ navigation }) => {
     { name: "Other Expenses", allocation: "", id: "10" },
   ];
 
-  // Generate random transactionId
   const generateTransactionId = () => {
     return Math.random().toString(36).substring(2, 15);
   };
 
-  // Update transactionsRef and force FlatList re-render
   useEffect(() => {
     transactionsRef.current = transactions;
     console.log("Updated transactionsRef:", transactionsRef.current);
     setFlatListRenderKey((prev) => prev + 1);
   }, [transactions]);
 
-  // Debounced WebSocket handler
   const handleRecommendation = useCallback(
       debounce((data) => {
         console.log("Received recommendation:", {
@@ -190,7 +204,6 @@ const TransactionScreen = ({ navigation }) => {
       []
   );
 
-  // Initialize WebSocket
   useEffect(() => {
     if (!user || !token) {
       console.log("WebSocket skipped: missing user or token");
@@ -233,7 +246,6 @@ const TransactionScreen = ({ navigation }) => {
     };
   }, [user, token, handleRecommendation]);
 
-  // Subscribe to new transactions
   useEffect(() => {
     if (!socket) return;
     transactions.forEach((t) => {
@@ -247,7 +259,6 @@ const TransactionScreen = ({ navigation }) => {
     });
   }, [socket, transactions]);
 
-  // Apply filters and sort
   const applyFiltersAndSort = useCallback(
       (trans, category, sort) => {
         let filtered = [...trans];
@@ -276,12 +287,10 @@ const TransactionScreen = ({ navigation }) => {
     applyFiltersAndSort(transactions, filterCategory, sortBy);
   }, [transactions, filterCategory, sortBy, applyFiltersAndSort]);
 
-  // Log filteredTransactions changes
   useEffect(() => {
     console.log("filteredTransactions changed:", filteredTransactions);
   }, [filteredTransactions]);
 
-  // Fetch transactions with pagination
   const loadTransactions = useCallback(
       async (page = 1, refresh = false) => {
         if (!user || !token || !currentBudgetCycle?.budgetCycleId) {
@@ -323,7 +332,7 @@ const TransactionScreen = ({ navigation }) => {
                   year: "numeric",
                 }),
                 isTransactionPerformedAfterRecommendation:
-                    t.isTransactionPerformedAfterRecommendation || "no",
+                    t.isTransactionPerformedAfterRecommendation || "yes",
                 recommendation: t.recommendation || null,
                 reasoning: t.reasoning || null,
               }))
@@ -403,6 +412,7 @@ const TransactionScreen = ({ navigation }) => {
         date: newTransaction.date,
         transactionId: generateTransactionId(),
         isTransactionPerformedAfterRecommendation: "no",
+        currency: userCurrency,
       };
       console.log("Adding transaction:", transactionData);
       const response = await transactionService.createTransaction(transactionData, token);
@@ -419,7 +429,6 @@ const TransactionScreen = ({ navigation }) => {
           year: "numeric",
         }),
       };
-      // Add to current page if there's space, otherwise reset to page 1
       if (transactions.length < limit) {
         setTransactions((prev) => [newTrans, ...prev]);
         setTotalTransactions((prev) => prev + 1);
@@ -493,6 +502,7 @@ const TransactionScreen = ({ navigation }) => {
         updatedFields.isTransactionPerformedAfterRecommendation =
             editTransaction.isTransactionPerformedAfterRecommendation;
       }
+      updatedFields.currency = userCurrency;
 
       if (Object.keys(updatedFields).length === 0) {
         Alert.alert("No Changes", "No fields were modified");
@@ -555,7 +565,6 @@ const TransactionScreen = ({ navigation }) => {
               subscribedIdsRef.current.delete(transactionId);
               console.log("Unsubscribed from recommendation channel:", { transactionId });
             }
-            // Reload current page to reflect updated transaction list
             if (transactions.length === 1 && currentPage > 1) {
               setCurrentPage((prev) => prev - 1);
             } else {
@@ -583,6 +592,7 @@ const TransactionScreen = ({ navigation }) => {
     try {
       const updatedFields = {
         isTransactionPerformedAfterRecommendation: value ? "yes" : "no",
+        currency: userCurrency,
       };
       console.log("Updating recommendation switch:", { transactionId, updatedFields });
       const response = await transactionService.updateTransaction(
@@ -635,10 +645,11 @@ const TransactionScreen = ({ navigation }) => {
       filteredTransactions,
       subscribedIds: Array.from(subscribedIdsRef.current),
       pagination: { currentPage, totalPages, totalTransactions, limit },
+      userCurrency,
     });
     Alert.alert(
         "Debug Info",
-        `Transactions: ${transactions.length}, Subscribed IDs: ${subscribedIdsRef.current.size}, Page: ${currentPage}/${totalPages}, Total: ${totalTransactions}`
+        `Transactions: ${transactions.length}, Subscribed IDs: ${subscribedIdsRef.current.size}, Page: ${currentPage}/${totalPages}, Total: ${totalTransactions}, Currency: ${userCurrency}`
     );
   };
 
@@ -759,7 +770,7 @@ const TransactionScreen = ({ navigation }) => {
                 />
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Amount</Text>
+                <Text style={styles.label}>Amount ({userCurrency})</Text>
                 <TextInput
                     style={styles.input}
                     placeholder="0.00"
@@ -822,7 +833,7 @@ const TransactionScreen = ({ navigation }) => {
                 />
               </View>
               <View style={styles.inputContainer}>
-                <Text style={styles.label}>Amount</Text>
+                <Text style={styles.label}>Amount ({userCurrency})</Text>
                 <TextInput
                     style={styles.input}
                     placeholder="0.00"
@@ -913,6 +924,7 @@ const TransactionScreen = ({ navigation }) => {
                                 startEditing={startEditing}
                                 handleDeleteTransaction={handleDeleteTransaction}
                                 handleRecommendationSwitch={handleRecommendationSwitch}
+                                userCurrency={userCurrency}
                             />
                         )}
                         keyExtractor={(item) => item.transactionId.toString()}

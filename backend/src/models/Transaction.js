@@ -4,8 +4,6 @@ const { Schema, model } = mongoose;
 
 const TransactionSchema = new Schema(
     {
-
-
         userId: {
             type: String,
             required: true
@@ -75,24 +73,24 @@ TransactionSchema.virtual('budgetCycle', {
 
 
 
-TransactionSchema.post('save', async function(doc) {
-    try {
-        const BudgetCycle = mongoose.model('BudgetCycle');
-        // Update overall spending
-        await BudgetCycle.findOneAndUpdate(
-            { budgetCycleId: doc.budgetCycleId },
-            { $inc: { spentSoFar: doc.purchaseAmount } }
-        );
-
-        const update = {};
-        update[`categorySpent.${doc.purchaseCategory}`] = doc.purchaseAmount;
-        await BudgetCycle.findOneAndUpdate(
-            { budgetCycleId: doc.budgetCycleId },
-            { $inc: update }
-        );
-    } catch (err) {
-        console.error("Error updating aggregated budget cycle:", err);
-    }
-});
+// TransactionSchema.post('save', async function(doc) {
+//     try {
+//         const BudgetCycle = mongoose.model('BudgetCycle');
+//         // Update overall spending
+//         await BudgetCycle.findOneAndUpdate(
+//             { budgetCycleId: doc.budgetCycleId },
+//             { $inc: { spentSoFar: doc.purchaseAmount } }
+//         );
+//
+//         const update = {};
+//         update[`categorySpent.${doc.purchaseCategory}`] = doc.purchaseAmount;
+//         await BudgetCycle.findOneAndUpdate(
+//             { budgetCycleId: doc.budgetCycleId },
+//             { $inc: update }
+//         );
+//     } catch (err) {
+//         console.error("Error updating aggregated budget cycle:", err);
+//     }
+// });
 
 export default mongoose.models.Transaction || model('Transaction', TransactionSchema);

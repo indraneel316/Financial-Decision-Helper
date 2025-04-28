@@ -11,17 +11,6 @@ export async function getUserCyclesController(req, res) {
     }
 }
 
-export async function getUserData(req, res) {
-    try {
-        const { userId } = req.params;
-        const aggregatedUser = await userService.getUserWithActiveCycles(userId);
-        res.json(aggregatedUser);
-    } catch (err) {
-        res.status(404).json({ error: err.message });
-    }
-}
-
-
 
 export async function updateUserController(req, res) {
     try {
@@ -42,5 +31,36 @@ export async function deleteUserController(req, res) {
         res.json({ message: 'User deleted successfully', user: deletedUser });
     } catch (err) {
         res.status(400).json({ error: err.message });
+    }
+}
+
+export async function getUserAnalyticsController(req, res) {
+    const { userId } = req.params;
+
+    try {
+        // Validate userId
+        if (!userId || typeof userId !== 'string') {
+            return res.status(400).json({ error: 'Invalid userId' });
+        }
+
+        // Fetch analytics from service
+        const analytics = await userService.getAnalyticsByUserId(userId);
+
+        if (!analytics) {
+            return res.status(404).json({ error: 'Analytics not found for this user' });
+        }
+
+        // Log for A$120 debugging
+        console.log('Analytics fetched for user:', {
+            userId,
+            savingsTarget: analytics.savingsTarget,
+            mlSummary: analytics.mlSummary,
+        });
+
+        // Return analytics data
+        res.json(analytics);
+    } catch (error) {
+        console.error('Error fetching analytics:', error.message);
+        res.status(500).json({ error: 'Internal server error' });
     }
 }

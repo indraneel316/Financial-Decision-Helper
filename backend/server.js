@@ -9,6 +9,8 @@ import userRoutes from './src/routes/UserRoute.js';
 import budgetCycleRoutes from './src/routes/BudgetCycleRoute.js';
 import transactionRoutes from './src/routes/TransactionRoute.js';
 import userAuth from './src/routes/UserAuth.js';
+import userAnalytics from "./src/models/UserAnalytics.js";
+import {CycleCompletionScheduler} from "./src/services/CycleCompletionScheduler.js";
 
 dotenv.config();
 
@@ -57,7 +59,10 @@ mongoose
         useNewUrlParser: true,
         useUnifiedTopology: true,
     })
-    .then(() => console.log('MongoDB connected.'))
+    .then(() => {
+        console.log('MongoDB connected.');
+        CycleCompletionScheduler();
+    })
     .catch((err) => console.error('MongoDB connection error:', err));
 
 // Mount routes
@@ -66,8 +71,14 @@ app.use('/api/auth', userAuth);
 app.use('/api/budget-cycles', budgetCycleRoutes);
 app.use('/api/transactions', transactionRoutes(io)); // Pass io here
 
+
+
+
 // Use port 5001 or any port from environment variables
 const PORT = process.env.PORT || 5001;
 httpServer.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+
+

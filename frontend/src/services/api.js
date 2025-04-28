@@ -1,4 +1,5 @@
 import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Base URL for the backend API
 const API_BASE_URL = 'http://10.0.0.115:5001/api';
@@ -51,7 +52,26 @@ export const userService = {
 export const budgetService = {
   createBudgetCycle: async (budgetData, token) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/budget-cycles`, budgetData, {
+      // Fetch user currency from AsyncStorage
+      let currency = 'USD'; // Fallback
+      try {
+        const userData = await AsyncStorage.getItem('user');
+        if (userData) {
+          const user = JSON.parse(userData);
+          currency = user.currency || 'USD';
+        } else {
+          console.warn('No user data found in AsyncStorage, using default currency: USD');
+        }
+      } catch (error) {
+        console.error('Error reading user currency from AsyncStorage:', error);
+      }
+
+      // Include currency in budgetData
+      const payload = {
+        ...budgetData,
+        currency
+      };
+      const response = await axios.post(`${API_BASE_URL}/budget-cycles`, payload, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -91,7 +111,26 @@ export const budgetService = {
 
   updateBudgetCycle: async (cycleId, budgetData, token) => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/budget-cycles/${budgetData.budgetCycleId}`, budgetData, {
+      // Fetch user currency from AsyncStorage
+      let currency = 'USD'; // Fallback
+      try {
+        const userData = await AsyncStorage.getItem('user');
+        if (userData) {
+          const user = JSON.parse(userData);
+          currency = user.currency || 'USD';
+        } else {
+          console.warn('No user data found in AsyncStorage, using default currency: USD');
+        }
+      } catch (error) {
+        console.error('Error reading user currency from AsyncStorage:', error);
+      }
+
+      // Include currency in budgetData
+      const payload = {
+        ...budgetData,
+        currency
+      };
+      const response = await axios.put(`${API_BASE_URL}/budget-cycles/${budgetData.budgetCycleId}`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;

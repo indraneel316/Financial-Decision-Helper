@@ -42,7 +42,7 @@ const maritalStatuses = [
     { label: 'Separated', value: 'Separated' },
 ];
 
-// Full currency list (abbreviated here; use the full list from previous response)
+// Full currency list
 const currencies = [
     { label: 'AED - United Arab Emirates Dirham', value: 'AED', minIncome: 2000, maxIncome: 400000 },
     { label: 'AFN - Afghan Afghani', value: 'AFN', minIncome: 5000, maxIncome: 5000000 },
@@ -185,7 +185,7 @@ const currencies = [
     { label: 'UAH - Ukrainian Hryvnia', value: 'UAH', minIncome: 10000, maxIncome: 10000000 },
     { label: 'UGX - Ugandan Shilling', value: 'UGX', minIncome: 500000, maxIncome: 500000000 },
     { label: 'USD - US Dollar', value: 'USD', minIncome: 500, maxIncome: 100000 },
-    { label: 'UYU - Uruguayan Peso', value: 'UYU', minIncome: 10000, maxIncome: 10000000 },
+    { label: 'UYU - Uruguayan Peso',  value: 'UYU', minIncome: 10000, maxIncome: 10000000 },
     { label: 'UZS - Uzbekistan Som', value: 'UZS', minIncome: 5000000, maxIncome: 5000000000 },
     { label: 'VES - Venezuelan Bolívar', value: 'VES', minIncome: 1000, maxIncome: 1000000 },
     { label: 'VND - Vietnamese Dong', value: 'VND', minIncome: 5000000, maxIncome: 5000000000 },
@@ -205,6 +205,7 @@ const UserSettingsScreen = ({ navigation }) => {
     const { user, token, updateProfile } = useAuth();
     const [settings, setSettings] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
+    const [hasActiveCycle, setHasActiveCycle] = useState(false);
 
     useEffect(() => {
         console.log('UserSettingsScreen - User from AuthContext:', user);
@@ -222,10 +223,28 @@ const UserSettingsScreen = ({ navigation }) => {
             };
             setSettings(newSettings);
             console.log('UserSettingsScreen - Settings set:', newSettings);
+
+            // Check for active budget cycles from user.cycle
+            const checkActiveCycles = () => {
+                const currentDate = new Date();
+                console.log("USER CYCLES ", user.cycle)
+                const activeCycleExists = user.cycle && Array.isArray(user.cycle) &&
+                    user.cycle.some(cycle => {
+                        const cycleData = cycle.budget || cycle;
+                        return cycleData.endDate && new Date(cycleData.endDate) > currentDate;
+                    });
+                setHasActiveCycle(activeCycleExists);
+                console.log('UserSettingsScreen - Active cycle exists:', activeCycleExists);
+            };
+            checkActiveCycles();
         }
     }, [user]);
 
     const handleChange = (field, value) => {
+        if (field === 'currency' && hasActiveCycle) {
+            Alert.alert('Restricted', 'Cannot change currency while an active budget cycle exists.');
+            return;
+        }
         if (settings) setSettings({ ...settings, [field]: value });
     };
 
@@ -282,7 +301,7 @@ const UserSettingsScreen = ({ navigation }) => {
                 maritalStatus: settings.maritalStatus,
                 familySize: parseInt(settings.familySize, 10) || 1,
                 timeZone: settings.timeZone,
-                currency: settings.currency,
+                currency: hasActiveCycle ? user.currency : settings.currency,
                 psychologicalNotes: settings.psychologicalNotes,
             };
 
@@ -449,17 +468,26 @@ const UserSettingsScreen = ({ navigation }) => {
 
                     <View style={styles.inputContainer}>
                         <Text style={styles.label}>Currency</Text>
-                        {isEditing ? (
+                        {isEditing && !hasActiveCycle ? (
                             <RNPickerSelect
                                 onValueChange={(value) => handleChange('currency', value)}
                                 items={currencies}
                                 value={settings.currency}
                                 style={pickerSelectStyles}
                                 placeholder={{ label: 'Select a currency...', value: null }}
-                                useNativeAndroidPickerStyle={false} // For custom styling
+                                useNativeAndroidPickerStyle={false}
                             />
                         ) : (
-                            <Text style={styles.value}>{settings.currency}</Text>
+                            <View>
+                                <Text style={[styles.value, hasActiveCycle ? styles.disabledText : null]}>
+                                    {settings.currency}
+                                </Text>
+                                {hasActiveCycle && isEditing && (
+                                    <Text style={styles.noteText}>
+                                        Currency cannot be changed while an active budget cycle exists.
+                                    </Text>
+                                )}
+                            </View>
                         )}
                     </View>
                 </View>
@@ -590,6 +618,14 @@ const styles = StyleSheet.create({
     value: {
         fontSize: 16,
         color: '#333',
+    },
+    disabledText: {
+        color: '#999',
+    },
+    noteText: {
+        fontSize: 14,
+        color: '#FF6B6B',
+        marginTop: 5,
     },
     saveButton: {
         backgroundColor: '#4CAF50',

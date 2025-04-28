@@ -30,6 +30,10 @@ const BudgetCycleSchema = new Schema({
         type: Number,
         required: true
     },
+    currency: {
+        type: String,
+        required: true
+    },
     allocatedEntertainment: { type: Number, default: 0 },
     allocatedGroceries:     { type: Number, default: 0 },
     allocatedUtilities:     { type: Number, default: 0 },

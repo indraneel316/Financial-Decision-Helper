@@ -12,6 +12,8 @@ import User from '../models/User.js';
  * If the mlSummary field in historical insights is non-empty, only that summary is used;
  * otherwise, all individual historical attributes are included.
  *
+ * Supports budget cycles with different currencies by using the cycle's currency field.
+ *
  * @param {String} currentCycleId - The current budget cycle's custom ID.
  * @param {Number} userId - The user's custom numeric ID.
  * @param {Object} newTxn - New transaction details:
@@ -31,8 +33,29 @@ export async function buildEnhancedLLMPrompt(currentCycleId, userId, newTxn) {
     const maritalStatus = userProfile ? userProfile.maritalStatus : "N/A";
     const familySize = userProfile ? userProfile.familySize : "N/A";
     const timeZone = userProfile ? userProfile.timeZone : "N/A";
-    const currency = userProfile ? userProfile.currency : "N/A";
+    const userCurrency = userProfile ? userProfile.currency : "USD"; // User-level currency
     const psychologicalNotes = userProfile ? userProfile.psychologicalNotes || "None" : "N/A";
+
+    // Get cycle-specific currency, fallback to user currency or USD
+    const cycleCurrency = currentCycle.currency || userCurrency || "USD";
+    if (!currentCycle.currency) {
+        console.warn(`Currency missing for budget cycle ${currentCycleId}, using fallback: ${cycleCurrency}`);
+    }
+
+    // Currency formatting utility
+    const formatCurrency = (amount, currencyCode = cycleCurrency) => {
+        try {
+            return new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: currencyCode,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+            }).format(amount);
+        } catch (error) {
+            console.error(`Currency formatting error for ${currencyCode}:`, error);
+            return `$${parseFloat(amount).toFixed(2)}`; // Fallback to USD
+        }
+    };
 
     // Calculate day-of-cycle.
     let dayOfCycle = "N/A";
@@ -78,13 +101,13 @@ export async function buildEnhancedLLMPrompt(currentCycleId, userId, newTxn) {
     } else {
         historicalSection = `
 - Completed Cycles: ${historicalInsights ? historicalInsights.cycleCount : "N/A"}
-- Average Spending per Cycle: $${historicalInsights ? historicalInsights.avgSpentPerCycle : "N/A"}
+- Average Spending per Cycle: ${historicalInsights ? formatCurrency(historicalInsights.avgSpentPerCycle) : "N/A"}
 - Savings Achievement Rate: ${historicalInsights ? historicalInsights.savingsAchievementRate : "N/A"}
 - Average Transactions per Cycle: ${historicalInsights ? historicalInsights.avgTxnCount : "N/A"}
 - Average Transaction Day: ${historicalInsights ? historicalInsights.avgTxnDay : "N/A"}
-- Maximum Transaction Amount: $${historicalInsights ? historicalInsights.maxTxnAmount : "N/A"}
-- Minimum Transaction Amount: $${historicalInsights ? historicalInsights.minTxnAmount : "N/A"}
-- Median Transaction Amount: $${historicalInsights ? historicalInsights.medianTxnAmount : "N/A"}
+- Maximum Transaction Amount: ${historicalInsights ? formatCurrency(historicalInsights.maxTxnAmount) : "N/A"}
+- Minimum Transaction Amount: ${historicalInsights ? formatCurrency(historicalInsights.minTxnAmount) : "N/A"}
+- Median Transaction Amount: ${historicalInsights ? formatCurrency(historicalInsights.medianTxnAmount) : "N/A"}
 - Category Insights: ${historicalInsights && historicalInsights.categories ? JSON.stringify(historicalInsights.categories) : "N/A"}`;
     }
 
@@ -97,40 +120,42 @@ USER PROFILE:
 - Marital Status: ${maritalStatus}
 - Family Size: ${familySize}
 - Time Zone: ${timeZone}
-- Currency: ${currency}
+- Default Currency: ${userCurrency} (Note: Cycle uses ${cycleCurrency})
 - Psychological Notes: ${psychologicalNotes}
 
 CURRENT BUDGET CYCLE:
+- Cycle ID: ${currentCycleId}
+- Currency: ${cycleCurrency}
 - Cycle Duration: ${currentCycle.budgetCycleDuration}
 - Cycle Start Date: ${currentCycle.startDate ? new Date(currentCycle.startDate).toLocaleDateString() : "N/A"}
 - Cycle End Date: ${currentCycle.endDate ? new Date(currentCycle.endDate).toLocaleDateString() : "Ongoing"}
 - Transaction Day of Cycle: ${dayOfCycle}
-- Total Allocation: $${currentCycle.totalMoneyAllocation}
-- Savings Target: $${currentCycle.savingsTarget}
-- Current Total Spent: $${currentTotalSpent} (spentSoFar: $${currentCycle.spentSoFar || currentTotalSpent})
-- New Transaction Amount: $${newTxn.purchaseAmount}
-- New Total Spent (if approved): $${newTotalSpent}
-- New Remaining Budget: $${newRemainingBudget}
+- Total Allocation: ${formatCurrency(currentCycle.totalMoneyAllocation)}
+- Savings Target: ${formatCurrency(currentCycle.savingsTarget)}
+- Current Total Spent: ${formatCurrency(currentTotalSpent)} (spentSoFar: ${formatCurrency(currentCycle.spentSoFar || currentTotalSpent)})
+- New Transaction Amount: ${formatCurrency(newTxn.purchaseAmount)}
+- New Total Spent (if approved): ${formatCurrency(newTotalSpent)}
+- New Remaining Budget: ${formatCurrency(newRemainingBudget)}
 - Savings Target Met: ${savingsTargetMet ? 'Yes' : 'No'}
 
 CURRENT CYCLE DETAILS:
 - Cycle Status: ${currentCycle.status}
 - Allocations:
-   - Entertainment: $${currentCycle.allocatedEntertainment}
-   - Groceries: $${currentCycle.allocatedGroceries}
-   - Utilities: $${currentCycle.allocatedUtilities}
-   - Commute: $${currentCycle.allocatedCommute}
-   - Shopping: $${currentCycle.allocatedShopping}
-   - Dining Out: $${currentCycle.allocatedDiningOut}
-   - Medical Expense: $${currentCycle.allocatedMedicalExpense}
-   - Accommodation: $${currentCycle.allocatedAccommodation}
-   - Vacation: $${currentCycle.allocatedVacation}
-   - Other Expenses: $${currentCycle.allocatedOtherExpenses}
+   - Entertainment: ${formatCurrency(currentCycle.allocatedEntertainment)}
+   - Groceries: ${formatCurrency(currentCycle.allocatedGroceries)}
+   - Utilities: ${formatCurrency(currentCycle.allocatedUtilities)}
+   - Commute: ${formatCurrency(currentCycle.allocatedCommute)}
+   - Shopping: ${formatCurrency(currentCycle.allocatedShopping)}
+   - Dining Out: ${formatCurrency(currentCycle.allocatedDiningOut)}
+   - Medical Expense: ${formatCurrency(currentCycle.allocatedMedicalExpense)}
+   - Accommodation: ${formatCurrency(currentCycle.allocatedAccommodation)}
+   - Vacation: ${formatCurrency(currentCycle.allocatedVacation)}
+   - Other Expenses: ${formatCurrency(currentCycle.allocatedOtherExpenses)}
 
 CATEGORY DETAILS (${newTxn.purchaseCategory}):
-- Allocated Amount: $${allocatedForCategory}
-- Current Spending: $${currentCategorySpent}
-- New Spending (if approved): $${newCategorySpent}
+- Allocated Amount: ${formatCurrency(allocatedForCategory)}
+- Current Spending: ${formatCurrency(currentCategorySpent)}
+- New Spending (if approved): ${formatCurrency(newCategorySpent)}
 
 HISTORICAL TRENDS & BEHAVIORAL INSIGHTS:
 ${historicalSection}

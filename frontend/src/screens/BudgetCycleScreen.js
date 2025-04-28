@@ -21,6 +21,27 @@ const cycleDurations = [
   { label: 'Monthly', value: 'monthly' },
 ];
 
+// Currency formatting function using Intl.NumberFormat
+const formatCurrency = (amount, currency) => {
+  try {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currency || 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount || 0);
+  } catch (error) {
+    console.error('Error formatting currency:', error);
+    // Fallback to USD if currency is invalid
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount || 0);
+  }
+};
+
 const BudgetCycleScreen = ({ navigation, route }) => {
   const { user, token, setUser } = useAuth();
   const existingCycle = route.params?.cycle;
@@ -148,7 +169,6 @@ const BudgetCycleScreen = ({ navigation, route }) => {
     }
     const currentDate = new Date();
     const activeCycle = user.cycle.find((cycle) => {
-      // Handle malformed cycle entries (e.g., { budget: {...} })
       const cycleData = cycle.budget || cycle;
       return cycleData.endDate && new Date(cycleData.endDate) > currentDate;
     });
@@ -216,6 +236,7 @@ const BudgetCycleScreen = ({ navigation, route }) => {
         endDate: endDate,
         totalMoneyAllocation,
         savingsTarget,
+        currency: user.currency || 'USD',
         ...categoryAllocations,
       };
 
@@ -230,21 +251,19 @@ const BudgetCycleScreen = ({ navigation, route }) => {
           delete budgetToSave.endDate;
         }
         const response = await budgetService.updateBudgetCycle(budgetToSave.budgetCycleId, budgetToSave, token);
-        updatedCycle = response.budget || response; // Extract flat cycle object
+        updatedCycle = response.budget || response;
         console.log('Debug: handleSaveBudget - updatedCycle:', updatedCycle);
       } else {
         budgetToSave.budgetCycleId = Date.now().toString();
         const response = await budgetService.createBudgetCycle(budgetToSave, token);
-        updatedCycle = response.budget || response; // Extract flat cycle object
+        updatedCycle = response.budget || response;
         console.log('Debug: handleSaveBudget - createdCycle:', updatedCycle);
       }
 
-      // Ensure updatedCycle is a flat object
       if (!updatedCycle.budgetCycleId) {
         throw new Error('Invalid cycle data returned from API');
       }
 
-      // Replace the old cycle or append the new one
       const updatedUser = {
         ...user,
         cycle: user.cycle && Array.isArray(user.cycle)
@@ -296,12 +315,12 @@ const BudgetCycleScreen = ({ navigation, route }) => {
                 }
 
                 const transactions = await transactionService.getTransactionsByBudgetCycle(idToDelete, token);
-                if (transactions.length > 0) {
+
+                if (transactions) {
                   Alert.alert('Error', 'Cannot delete a cycle with transactions.');
                   return;
                 }
                 await budgetService.deleteBudgetCycle(idToDelete, token);
-
                 const updatedCycles = user.cycle.filter((cycle) => cycle.budgetCycleId !== idToDelete);
                 const updatedUser = { ...user, cycle: updatedCycles };
                 await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
@@ -408,15 +427,21 @@ const BudgetCycleScreen = ({ navigation, route }) => {
             </View>
             <View style={styles.activeCycleRow}>
               <Text style={styles.activeCycleLabel}>Total Budget:</Text>
-              <Text style={styles.activeCycleValue}>${activeCycle.totalMoneyAllocation.toFixed(2)}</Text>
+              <Text style={styles.activeCycleValue}>
+                {formatCurrency(activeCycle.totalMoneyAllocation, user.currency)}
+              </Text>
             </View>
             <View style={styles.activeCycleRow}>
               <Text style={styles.activeCycleLabel}>Savings Goal:</Text>
-              <Text style={styles.activeCycleValue}>${activeCycle.savingsTarget.toFixed(2)}</Text>
+              <Text style={styles.activeCycleValue}>
+                {formatCurrency(activeCycle.savingsTarget, user.currency)}
+              </Text>
             </View>
             <View style={styles.activeCycleRow}>
               <Text style={styles.activeCycleLabel}>Allocated:</Text>
-              <Text style={styles.activeCycleValue}>${totalAllocated.toFixed(2)}</Text>
+              <Text style={styles.activeCycleValue}>
+                {formatCurrency(totalAllocated, user.currency)}
+              </Text>
             </View>
             <View style={styles.activeCycleRow}>
               <Text style={styles.activeCycleLabel}>Remaining:</Text>
@@ -426,7 +451,7 @@ const BudgetCycleScreen = ({ navigation, route }) => {
                     { color: remaining < 0 ? '#E53935' : '#4CAF50' },
                   ]}
               >
-                ${remaining.toFixed(2)}
+                {formatCurrency(remaining, user.currency)}
               </Text>
             </View>
           </View>
@@ -436,7 +461,9 @@ const BudgetCycleScreen = ({ navigation, route }) => {
             {categories.map((cat, index) => (
                 <View key={index} style={styles.categoryRow}>
                   <Text style={styles.categoryName}>{cat.name}</Text>
-                  <Text style={styles.categoryValue}>${cat.value.toFixed(2)}</Text>
+                  <Text style={styles.categoryValue}>
+                    {formatCurrency(cat.value, user.currency)}
+                  </Text>
                 </View>
             ))}
           </View>
@@ -492,7 +519,7 @@ const BudgetCycleScreen = ({ navigation, route }) => {
                     />
                   </View>
                   <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Total Money Allocation</Text>
+                    <Text style={styles.label}>Total Money Allocation ({user.currency || 'USD'})</Text>
                     <TextInput
                         style={styles.input}
                         placeholder="Enter amount"
@@ -502,7 +529,7 @@ const BudgetCycleScreen = ({ navigation, route }) => {
                     />
                   </View>
                   <View style={styles.inputContainer}>
-                    <Text style={styles.label}>Savings Target</Text>
+                    <Text style={styles.label}>Savings Target ({user.currency || 'USD'})</Text>
                     <TextInput
                         style={styles.input}
                         placeholder="Enter savings goal"
@@ -534,21 +561,22 @@ const BudgetCycleScreen = ({ navigation, route }) => {
                     <View style={styles.summaryItem}>
                       <Text style={styles.summaryLabel}>Total Money Allocation:</Text>
                       <Text style={styles.summaryValue}>
-                        ${parseFloat(budgetData.totalMoneyAllocation || 0).toFixed(2)}
+                        {formatCurrency(parseFloat(budgetData.totalMoneyAllocation || 0), user.currency)}
                       </Text>
                     </View>
                     <View style={styles.summaryItem}>
                       <Text style={styles.summaryLabel}>Allocated:</Text>
                       <Text style={styles.summaryValue}>
-                        ${budgetData.categories
-                          .reduce((sum, category) => sum + (parseFloat(category.allocation) || 0), 0)
-                          .toFixed(2)}
+                        {formatCurrency(
+                            budgetData.categories.reduce((sum, category) => sum + (parseFloat(category.allocation) || 0), 0),
+                            user.currency
+                        )}
                       </Text>
                     </View>
                     <View style={styles.summaryItem}>
                       <Text style={styles.summaryLabel}>Savings Target:</Text>
                       <Text style={styles.summaryValue}>
-                        ${parseFloat(budgetData.savingsTarget || 0).toFixed(2)}
+                        {formatCurrency(parseFloat(budgetData.savingsTarget || 0), user.currency)}
                       </Text>
                     </View>
                     <View style={styles.summaryItem}>
@@ -559,7 +587,7 @@ const BudgetCycleScreen = ({ navigation, route }) => {
                             { color: calculateRemainingBudget() < 0 ? '#E53935' : '#4CAF50' },
                           ]}
                       >
-                        ${calculateRemainingBudget().toFixed(2)}
+                        {formatCurrency(calculateRemainingBudget(), user.currency)}
                       </Text>
                     </View>
                   </View>
