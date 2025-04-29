@@ -112,26 +112,34 @@ ${Object.entries(insights.categorySummaries).length > 0 ?
             ).join('\n') : '  - No transaction data available'}
 - Warnings: ${insights.warnings.join('; ') || 'None'}
 
+Objective: Generate personalized financial insights for a budgeting app user, analyzing spending analytics and demographics, focusing on 10 categories: Entertainment, Groceries, Utilities, Commute, Shopping, DiningOut, Medical Expense, Accommodation, Vacation, Other Expenses.
+
 Instructions:
-- Summarize the data and numbers for each field and what does it indicate
-- For new users (no transactions or cycles), use demographics to suggest realistic category budgets and savings goals (e.g., higher savings for high earners, modest budgets for young users, family-oriented expenses for larger families).
-- For users with transactions, analyze spending patterns, savings performance, and category assignments, factoring in demographics (e.g., young singles may prioritize discretionary spending, larger families may focus on shared expenses). Identify recurring habits (high descriptionPercentage or descriptionCount) and distinguish essential vs. non-essential spending within categories (e.g., groceries vs. chocolates in Groceries, movies vs. microtransactions in Entertainment).
-- If a transaction description suggests a category mismatch or excessive spending, highlight it and suggest reclassification or behavioral change. Examples:
-  - "chocolate stash" in Groceries (80% of transactions): Suggest reclassifying to Discretionary and reducing chocolate purchases.
-  - "vape again" in Groceries: Recommend moving to Discretionary and cutting back on vaping.
-  - "in-game purchase" in Entertainment (high frequency): Propose a separate Gaming category and limiting microtransactions.
-- For any recurring description without a matching example, suggest reclassification to a relevant category (e.g., Discretionary, Subscriptions) or reducing spending if it appears non-essential or excessive, considering income, age, and family size.
-- Use psychologicalNotes cautiously to inform tone or priorities (e.g., stress-prone users may need simpler recommendations), but do not over-interpret vague notes.
-- Address warnings (e.g., overspending, data inconsistencies).
-- Ensure analytics are robust for all edge cases.
 
-Generate a concise narrative summary (100-150 words) describing the user's financial behavior, tailored to their demographics. Include:
-- Key spending or budgeting patterns (e.g., overspending, category mismatches, recurring habits).
-- Savings performance relative to the target, considering income and life stage.
-- Any critical warnings or edge cases (e.g., gaming microtransactions).
-- One specific, actionable recommendation using app features (e.g., "Reclassify gaming transactions to Discretionary," "Reduce chocolate spending") or behavioral advice (e.g., "Cut back on microtransactions"), aligned with user details.
+Summarize Data: Condense each field's data (e.g., spending, savings, categories) and interpret its significance.
+New Users (No Transactions/Cycles): Suggest realistic category budgets and savings goals based on demographics (e.g., higher savings for high earners, family-focused budgets for larger households, modest budgets for young users).
+Users with Transactions:
+Analyze spending patterns, savings performance, and category assignments, considering demographics (e.g., young singles favor discretionary spending, families prioritize shared expenses).
+Identify recurring habits via high descriptionPercentage or descriptionCount, distinguishing essential (e.g., groceries) vs. non-essential (e.g., chocolates in Groceries, microtransactions in Entertainment) spending.
+Detect mismatches between transaction descriptions and categories (e.g., "chocolate stash" in Groceries, "in-game purchase" in Entertainment). Suggest reclassification to a suitable category (e.g., Other Expenses for non-essential items) or reducing excessive spending (e.g., gaming microtransactions).
+Examples of mismatches:
+"chocolate stash" in Groceries (high frequency): Reclassify to Other Expenses, reduce purchases.
+"vape again" in Groceries: Move to Other Expenses, cut back on vaping.
+"in-game purchase" in Entertainment (high count): Consider a Gaming sub-category, limit microtransactions.
+For unmatched recurring descriptions, recommend reclassification to Other Expenses or reduction if non-essential, factoring in income, age, and family size.
+Psychological Notes: Use cautiously to adjust tone (e.g., simpler advice for stress-prone users), avoiding over-interpretation.
+Warnings: Address issues like overspending or category inconsistencies.
+Edge Cases: Ensure robustness for new users, zero transactions, or excessive spending (e.g., microtransactions).
+Output:
 
-Ensure the tone is clear, encouraging, and focused on in-app actions or practical changes.
+Format: Pointer-based summary (100-150 words) tailored to demographics.
+Content:
+Key spending patterns (e.g., overspending, mismatches, recurring habits).
+Savings performance vs. target, aligned with income and life stage.
+Critical warnings or edge cases (e.g., gaming microtransactions).
+One actionable in-app recommendation (e.g., "Reclassify 'chocolate stash' to Other Expenses") or behavioral change (e.g., "Reduce microtransactions"), suited to user details.
+Tone: Clear, encouraging, focused on in-app actions (e.g., reclassify transactions, adjust budgets) or practical changes.
+Constraints: Avoid suggesting app adoption (user is already using it). Only use specified categories.
         `;
 
         let mlSummary = 'No summary available';

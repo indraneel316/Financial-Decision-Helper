@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext, useMemo } from 'react';
+import React, { useState, useEffect, useContext, useMemo, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Dimensions,
   ActivityIndicator,
   TouchableOpacity,
+  Animated,
 } from 'react-native';
 import axios from 'axios';
 import { AuthContext } from '../contexts/AuthContext';
@@ -50,6 +51,8 @@ const AnalyticsScreen = ({ navigation }) => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [view, setView] = useState('current');
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideAnim = useRef(new Animated.Value(50)).current;
 
   const API_BASE_URL = 'http://10.0.0.115:5001/api';
 
@@ -120,7 +123,6 @@ const AnalyticsScreen = ({ navigation }) => {
         let currentSpendingByCategory = [];
         let currentCycle = null;
         let currentSavingsProgress = null;
-        let currentInsights = [];
 
         if (hasBudgetCycle && localBudgetCycleId) {
           [budgetCycleResponse, transactionsResponse] = await Promise.all([
@@ -157,6 +159,8 @@ const AnalyticsScreen = ({ navigation }) => {
             DiningOut: 'allocatedDiningOut',
             Accommodation: 'allocatedAccommodation',
             Shopping: 'allocatedShopping',
+            MedicalExpense: 'allocatedMedicalExpense',
+            Vacation: 'allocatedVacation',
             OtherExpenses: 'allocatedOtherExpenses',
           };
 
@@ -164,8 +168,20 @@ const AnalyticsScreen = ({ navigation }) => {
               ? (console.warn('Invalid spentSoFar:', budgetCycle.spentSoFar), 0)
               : parseFloat(budgetCycle.spentSoFar);
           const categorySpent = budgetCycle.categorySpent || {};
-          currentSpendingByCategory = Object.entries(categoryAllocations)
-              .map(([category, allocatedField]) => {
+
+          // Create a set of categories to include: all categorySpent keys and all allocated categories
+          const categoriesToInclude = new Set([
+            ...Object.keys(categorySpent),
+            ...Object.keys(categoryAllocations).filter(
+                (category) =>
+                    !isNaN(parseFloat(budgetCycle[categoryAllocations[category]])) &&
+                    parseFloat(budgetCycle[categoryAllocations[category]]) > 0,
+            ),
+          ]);
+
+          currentSpendingByCategory = Array.from(categoriesToInclude)
+              .map((category) => {
+                const allocatedField = categoryAllocations[category] || 'allocatedOtherExpenses';
                 const allocated = isNaN(parseFloat(budgetCycle[allocatedField]))
                     ? (console.warn(`Invalid ${allocatedField}:`, budgetCycle[allocatedField]), 0)
                     : parseFloat(budgetCycle[allocatedField]);
@@ -176,7 +192,7 @@ const AnalyticsScreen = ({ navigation }) => {
                   category,
                   amount,
                   allocated,
-                  percentage: allocated > 0 ? (amount / allocated) * 100 : (amount / totalSpent) * 100,
+                  percentage: allocated > 0 ? (amount / allocated) * 100 : amount > 0 ? (amount / totalSpent) * 100 : 0,
                 };
               })
               .filter((item) => item.amount > 0 || item.allocated > 0)
@@ -186,14 +202,14 @@ const AnalyticsScreen = ({ navigation }) => {
             budgetCycleId: localBudgetCycleId,
             cycleName: budgetCycle.cycleName || 'Completed Cycle',
             amount: totalSpent,
-            duration: budgetCycle.duration || 'monthly',
+            duration: budgetCycle.budgetCycleDuration || 'monthly',
             startDate: budgetCycle.startDate || new Date().toISOString(),
             endDate: budgetCycle.endDate || new Date().toISOString(),
             totalMoneyAllocation: isNaN(parseFloat(budgetCycle.totalMoneyAllocation))
                 ? (console.warn('Invalid totalMoneyAllocation:', budgetCycle.totalMoneyAllocation), 0)
                 : parseFloat(budgetCycle.totalMoneyAllocation),
             savingsTarget: isNaN(parseFloat(budgetCycle.savingsTarget))
-                ? (console.warn('Invalid savingsTarget:', budgetCycle.savingsTarget), 5000)
+                ? (console.warn('Invalid savingsTarget:', budgetCycle.savingsTarget), 0)
                 : parseFloat(budgetCycle.savingsTarget),
             topTransactions: currentTransactions
                 .filter((txn) => txn.isTransactionPerformedAfterRecommendation === 'yes')
@@ -204,7 +220,7 @@ const AnalyticsScreen = ({ navigation }) => {
                       ? (console.warn('Invalid purchaseAmount:', txn.purchaseAmount), 0)
                       : parseFloat(txn.purchaseAmount),
                 })),
-            isCompleted: budgetCycle.status === 'completed' || !budgetCycle.isActive,
+            isCompleted: budgetCycle.status !== 'active',
           };
 
           const currentSavings = currentCycle.totalMoneyAllocation - totalSpent;
@@ -220,49 +236,17 @@ const AnalyticsScreen = ({ navigation }) => {
                         ? 'Target Met'
                         : 'On Track',
           };
-
-          const topCurrentCategory = currentSpendingByCategory.reduce(
-              (max, curr) => (curr.amount > max.amount ? curr : max),
-              { amount: 0, category: '' },
-          );
-          if (topCurrentCategory.percentage > 100 && topCurrentCategory.allocated > 0) {
-            currentInsights.push({
-              id: '1',
-              title: `${topCurrentCategory.category} Overspending`,
-              description: `You've spent ${topCurrentCategory.percentage.toFixed(1)}% of your ${
-                  topCurrentCategory.category
-              } allocation.`,
-            });
-          }
-          if (currentSavingsProgress.percentage > 50 && currentSavingsProgress.current > 0) {
-            currentInsights.push({
-              id: '2',
-              title: 'Great Savings Progress',
-              description: `You're ${currentSavingsProgress.percentage.toFixed(1)}% towards your ${currentCycle.savingsTarget.toFixed(
-                  2,
-              )} ${overallAnalytics.baseCurrency || 'AUD'} goal!`,
-            });
-          } else if (currentSavingsProgress.percentage < 0) {
-            currentInsights.push({
-              id: '2',
-              title: 'Overspending Alert',
-              description: `You've exceeded your budget by ${Math.abs(
-                  currentSavingsProgress.current,
-              ).toFixed(2)} ${overallAnalytics.baseCurrency || 'AUD'}.`,
-            });
-          }
         }
 
         const overallCategorySummaries = overallAnalytics.categorySummaries || {};
         const totalSpent = isNaN(parseFloat(overallAnalytics.spentSoFar))
             ? (console.warn('Invalid overall spentSoFar:', overallAnalytics.spentSoFar), 0)
             : parseFloat(overallAnalytics.spentSoFar);
-        const overallSpendingByCategory = Object.entries(overallAnalytics.categorySpent || {})
-            .map(([category, amount]) => {
-              const summary = overallCategorySummaries[category] || {};
-              const spent = isNaN(parseFloat(amount))
-                  ? (console.warn(`Invalid categorySpent[${category}]:`, amount), 0)
-                  : parseFloat(amount);
+        const overallSpendingByCategory = Object.entries(overallCategorySummaries)
+            .map(([category, summary]) => {
+              const spent = isNaN(parseFloat(summary.totalSpentBase))
+                  ? (console.warn(`Invalid totalSpentBase[${category}]:`, summary.totalSpentBase), 0)
+                  : parseFloat(summary.totalSpentBase);
               const allocated = isNaN(parseFloat(summary.allocation))
                   ? (console.warn(`Invalid allocation for ${category}:`, summary.allocation), 0)
                   : parseFloat(summary.allocation);
@@ -278,7 +262,7 @@ const AnalyticsScreen = ({ navigation }) => {
 
         const overallSavingsProgress = {
           goal: isNaN(parseFloat(overallAnalytics.savingsTarget))
-              ? (console.warn('Invalid savingsTarget:', overallAnalytics.savingsTarget), 300)
+              ? (console.warn('Invalid savingsTarget:', overallAnalytics.savingsTarget), 0)
               : parseFloat(overallAnalytics.savingsTarget),
           current: isNaN(parseFloat(overallAnalytics.totalSavingsBase))
               ? (console.warn('Invalid totalSavingsBase:', overallAnalytics.totalSavingsBase), 0)
@@ -356,7 +340,7 @@ const AnalyticsScreen = ({ navigation }) => {
             spendingByCategory: currentSpendingByCategory,
             currentCycle,
             savingsProgress: currentSavingsProgress,
-            insights: currentInsights,
+            insights: [],
           },
           overall: {
             spendingByCategory: overallSpendingByCategory,
@@ -429,7 +413,7 @@ const AnalyticsScreen = ({ navigation }) => {
             currentCycle,
             savingsProgress: currentSavingsProgress,
             filteredTransactionsCount: currentCycle?.topTransactions.length,
-            insights: currentInsights,
+            insights: [],
           },
           overall: {
             totalSpent: overallAnalytics.spentSoFar,
@@ -444,7 +428,7 @@ const AnalyticsScreen = ({ navigation }) => {
             transactionStats: {
               max: overallAnalytics.maxTxnAmount,
               median: overallAnalytics.medianTxnAmount,
-              min: overallAnalytics.minTxnAmount,
+              min: overallAnalytics.maxTxnAmount,
               avgDay: overallAnalytics.avgTxnDay,
             },
             predictions: {
@@ -476,10 +460,25 @@ const AnalyticsScreen = ({ navigation }) => {
     fetchAnalytics();
   }, [userId, budgetCycleId]);
 
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 500,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [view, analyticsData]);
+
   const renderCategoryBar = (category, index, isOverall = false) => {
     const isOverspending = category.percentage > 100 || (isOverall && category.amount > analyticsData.overall.totalAllocated / analyticsData.overall.spendingByCategory.length);
     return (
-        <View key={index} style={styles.categoryItem}>
+        <Animated.View key={index} style={[styles.categoryItem, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           <View style={styles.categoryLabelContainer}>
             <Text style={styles.categoryLabel}>{category.category}</Text>
             <Text style={[styles.categoryAmount, isOverspending && styles.overspendingText]}>
@@ -501,30 +500,24 @@ const AnalyticsScreen = ({ navigation }) => {
           <Text style={[styles.percentage, isOverspending && styles.overspendingText]}>
             {category.allocated > 0 ? `${category.percentage.toFixed(1)}%` : `${category.amount.toFixed(2)} AUD`}
           </Text>
-        </View>
+        </Animated.View>
     );
   };
 
-  const renderNoDataCard = (title, message) => (
-      <View style={styles.section}>
+  const renderNoData = (title, message) => (
+      <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
         <Text style={styles.sectionTitle}>{title}</Text>
-        <View style={styles.noDataCard}>
+        <View style={styles.noDataContainer}>
           <Text style={styles.noDataText}>{message}</Text>
-          <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => navigation.navigate('BudgetCycle')}
-          >
-            <Text style={styles.actionButtonText}>Create Budget Cycle</Text>
-          </TouchableOpacity>
         </View>
-      </View>
+      </Animated.View>
   );
 
   const renderCurrentCycleCharts = () => {
     if (!analyticsData?.current?.currentCycle) {
-      return renderNoDataCard(
+      return renderNoData(
           'Cycle Overview',
-          'No active budget cycle data available. Create a new cycle to track your spending.'
+          'No cycle overview available due to no active cycle.'
       );
     }
 
@@ -557,17 +550,17 @@ const AnalyticsScreen = ({ navigation }) => {
         : [{ name: 'No Data', amount: 1, color: '#E0E0E0', legendFontColor: '#666', legendFontSize: 12 }];
 
     return (
-        <View style={styles.section}>
+        <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           <Text style={styles.sectionTitle}>
-            {cycleName} ({duration}) {isCompleted ? '(Completed)' : ''}
+            {cycleName} {isCompleted ? '(Completed)' : `(${duration})`}
           </Text>
-          <View style={styles.card}>
+          <View style={styles.chartCard}>
             <Text style={styles.subTitle}>Overview ({currency})</Text>
             <View style={styles.chartContainer} pointerEvents="none">
               <BarChart
                   data={overviewData}
-                  width={screenWidth - 80}
-                  height={220}
+                  width={screenWidth - 60}
+                  height={200}
                   chartConfig={{
                     backgroundColor: '#FFFFFF',
                     backgroundGradientFrom: '#FFFFFF',
@@ -576,7 +569,7 @@ const AnalyticsScreen = ({ navigation }) => {
                     color: (opacity = 1) => `rgba(78, 205, 196, ${opacity})`,
                     labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
                     style: { borderRadius: 16 },
-                    propsForLabels: { fontSize: 12, fontWeight: '600' },
+                    propsForLabels: { fontSize: 10, fontWeight: '600' },
                   }}
                   style={styles.chart}
                   showValuesOnTopOfBars
@@ -584,18 +577,18 @@ const AnalyticsScreen = ({ navigation }) => {
               />
             </View>
           </View>
-          <View style={styles.card}>
+          <View style={styles.chartCard}>
             <Text style={styles.subTitle}>Top Recommended Transactions ({currency})</Text>
             {topTransactions?.length ? (
                 <View style={styles.chartContainer} pointerEvents="none">
                   <PieChart
                       data={pieData}
-                      width={screenWidth - 80}
-                      height={220}
+                      width={screenWidth - 60}
+                      height={200}
                       chartConfig={{
                         color: (opacity = 1) => `rgba(229, 57, 53, ${opacity})`,
                         labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
-                        propsForLabels: { fontSize: 12, fontWeight: '600' },
+                        propsForLabels: { fontSize: 10, fontWeight: '600' },
                       }}
                       accessor="amount"
                       backgroundColor="transparent"
@@ -608,12 +601,12 @@ const AnalyticsScreen = ({ navigation }) => {
                 <Text style={styles.noDataText}>No qualifying transactions after recommendation</Text>
             )}
           </View>
-        </View>
+        </Animated.View>
     );
   };
 
   const renderOverallCharts = () => {
-    if (!analyticsData?.overall) return renderNoDataCard('Overall Analytics', 'No overall analytics data available.');
+    if (!analyticsData?.overall) return renderNoData('Overall Analytics', 'No overall analytics data available.');
 
     const { totalSpent, totalAllocated, topTransactions, transactionStats } = analyticsData.overall;
     const currency = analyticsData.overall.currency || 'AUD';
@@ -660,15 +653,15 @@ const AnalyticsScreen = ({ navigation }) => {
     };
 
     return (
-        <View style={styles.section}>
+        <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           <Text style={styles.sectionTitle}>Overall Analytics</Text>
-          <View style={styles.card}>
+          <View style={styles.chartCard}>
             <Text style={styles.subTitle}>Spending Overview ({currency})</Text>
             <View style={styles.chartContainer} pointerEvents="none">
               <BarChart
                   data={overviewData}
-                  width={screenWidth - 80}
-                  height={220}
+                  width={screenWidth - 60}
+                  height={200}
                   chartConfig={{
                     backgroundColor: '#FFFFFF',
                     backgroundGradientFrom: '#FFFFFF',
@@ -677,7 +670,7 @@ const AnalyticsScreen = ({ navigation }) => {
                     color: (opacity = 1) => `rgba(78, 205, 196, ${opacity})`,
                     labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
                     style: { borderRadius: 16 },
-                    propsForLabels: { fontSize: 12, fontWeight: '600' },
+                    propsForLabels: { fontSize: 10, fontWeight: '600' },
                   }}
                   style={styles.chart}
                   showValuesOnTopOfBars
@@ -685,18 +678,18 @@ const AnalyticsScreen = ({ navigation }) => {
               />
             </View>
           </View>
-          <View style={styles.card}>
+          <View style={styles.chartCard}>
             <Text style={styles.subTitle}>Top Recommended Transactions ({currency})</Text>
             {topTransactions?.length ? (
                 <View style={styles.chartContainer} pointerEvents="none">
                   <PieChart
                       data={pieData}
-                      width={screenWidth - 80}
-                      height={220}
+                      width={screenWidth - 60}
+                      height={200}
                       chartConfig={{
                         color: (opacity = 1) => `rgba(229, 57, 53, ${opacity})`,
                         labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
-                        propsForLabels: { fontSize: 12, fontWeight: '600' },
+                        propsForLabels: { fontSize: 10, fontWeight: '600' },
                       }}
                       accessor="amount"
                       backgroundColor="transparent"
@@ -709,13 +702,13 @@ const AnalyticsScreen = ({ navigation }) => {
                 <Text style={styles.noDataText}>No qualifying transactions after recommendation</Text>
             )}
           </View>
-          <View style={styles.card}>
+          <View style={styles.chartCard}>
             <Text style={styles.subTitle}>Transaction Distribution ({currency})</Text>
             <View style={styles.chartContainer} pointerEvents="none">
               <BarChart
                   data={transactionDistributionData}
-                  width={screenWidth - 80}
-                  height={220}
+                  width={screenWidth - 60}
+                  height={200}
                   chartConfig={{
                     backgroundColor: '#FFFFFF',
                     backgroundGradientFrom: '#FFFFFF',
@@ -724,7 +717,7 @@ const AnalyticsScreen = ({ navigation }) => {
                     color: (opacity = 1) => `rgba(229, 57, 53, ${opacity})`,
                     labelColor: (opacity = 1) => `rgba(51, 51, 51, ${opacity})`,
                     style: { borderRadius: 16 },
-                    propsForLabels: { fontSize: 12, fontWeight: '600' },
+                    propsForLabels: { fontSize: 10, fontWeight: '600' },
                   }}
                   style={styles.chart}
                   showValuesOnTopOfBars
@@ -732,69 +725,90 @@ const AnalyticsScreen = ({ navigation }) => {
               />
             </View>
           </View>
-        </View>
+        </Animated.View>
     );
   };
 
   const renderOverallSummary = () => {
-    if (!analyticsData?.overall) return renderNoDataCard('Overall Summary', 'No overall summary data available.');
+    if (!analyticsData?.overall) return renderNoData('Your Money Summary', 'No summary data available.');
 
     const { averages, transactionStats, predictions, trends, cycleCount, currency } = analyticsData.overall;
 
     if (!cycleCount && !analyticsData.overall.totalSpent) {
-      return renderNoDataCard('Overall Summary', 'No analytics data available. Create a budget cycle to see insights.');
+      return renderNoData('Your Money Summary', 'No analytics data available. Create a budget cycle to see insights.');
     }
 
     return (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Overall Summary</Text>
-          <View style={styles.card}>
-            <Text style={styles.subTitle}>Averages per Cycle</Text>
-            <Text style={styles.summaryText}>
-              Savings: {currency} {averages.savingsPerCycle.toFixed(2)}
-            </Text>
-            <Text style={styles.summaryText}>
-              Spent: {currency} {averages.spentPerCycle.toFixed(2)}
-            </Text>
-            <Text style={styles.summaryText}>Transactions: {averages.txnCount.toFixed(0)}</Text>
+        <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <Text style={styles.sectionTitle}>Your Money Summary</Text>
+          <View style={styles.chartCard}>
+            <Text style={styles.subTitle}>Your Average Budget Cycles Habits</Text>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryHeading}>Spending</Text>
+              <Text style={styles.metricText}>
+                {currency} {averages.spentPerCycle.toFixed(2)} (You typically spend this much each budget cycle)
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryHeading}>Savings</Text>
+              <Text style={styles.metricText}>
+                {currency} {averages.savingsPerCycle.toFixed(2)} (You usually save this amount each budget cycle)
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryHeading}>Purchases</Text>
+              <Text style={styles.metricText}>
+                {averages.txnCount.toFixed(0)} (Number of transactions you make each budget cycle)
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryHeading}>Spending Trend</Text>
+              <Text style={styles.metricText}>
+                {trends.spending} (Your spending is {trends.spending.toLowerCase()})
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryHeading}>Savings Trend</Text>
+              <Text style={styles.metricText}>
+                {trends.savings} (Your savings are {trends.savings.toLowerCase()})
+              </Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryHeading}>Transaction Stats</Text>
+              <Text style={styles.metricText}>
+                Max: {currency} {transactionStats.max.toFixed(2)}
+              </Text>
+              <Text style={styles.metricText}>
+                Median: {currency} {transactionStats.median.toFixed(2)}
+              </Text>
+              <Text style={styles.metricText}>
+                Min: {currency} {transactionStats.min.toFixed(2)}
+              </Text>
+              <Text style={styles.metricText}>Most Active Day: {transactionStats.avgDay}</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryHeading}>Predictions</Text>
+              <Text style={styles.metricText}>
+                Next Cycle Spending: {currency} {predictions.spendingNextCycle.toFixed(2)}
+              </Text>
+              <Text style={styles.metricText}>
+                Savings Goal Progress: {predictions.savingsAchievementRate.toFixed(1)}%
+              </Text>
+            </View>
           </View>
-          <View style={styles.card}>
-            <Text style={styles.subTitle}>Transaction Stats</Text>
-            <Text style={styles.summaryText}>
-              Max: {currency} {transactionStats.max.toFixed(2)}
-            </Text>
-            <Text style={styles.summaryText}>
-              Median: {currency} {transactionStats.median.toFixed(2)}
-            </Text>
-            <Text style={styles.summaryText}>
-              Min: {currency} {transactionStats.min.toFixed(2)}
-            </Text>
-            <Text style={styles.summaryText}>Most Active Day: {transactionStats.avgDay}</Text>
-          </View>
-          <View style={styles.card}>
-            <Text style={styles.subTitle}>Predictions</Text>
-            <Text style={styles.summaryText}>
-              Next Cycle Spending: {currency} {predictions.spendingNextCycle.toFixed(2)}
-            </Text>
-            <Text style={styles.summaryText}>
-              Savings Goal Progress: {predictions.savingsAchievementRate.toFixed(1)}%
-            </Text>
-          </View>
-          <View style={styles.card}>
-            <Text style={styles.subTitle}>Trends</Text>
-            <Text style={styles.summaryText}>Spending: {trends.spending}</Text>
-            <Text style={styles.summaryText}>Savings: {trends.savings}</Text>
-          </View>
-        </View>
+        </Animated.View>
     );
   };
 
   const renderSavingsProgress = () => {
     if (view === 'current' && !analyticsData?.current?.savingsProgress) {
-      return renderNoDataCard('Savings Progress', 'No savings progress data available for the current cycle.');
+      return renderNoData(
+          'Savings Progress',
+          'No savings progress available due to no active cycle.'
+      );
     }
     if (view === 'overall' && !analyticsData?.overall?.savingsProgress) {
-      return renderNoDataCard('Savings Progress', 'No overall savings progress data available.');
+      return renderNoData('Savings Progress', 'No overall savings progress data available.');
     }
 
     const savingsProgress = view === 'current' ? analyticsData.current.savingsProgress : analyticsData.overall.savingsProgress;
@@ -807,24 +821,24 @@ const AnalyticsScreen = ({ navigation }) => {
     };
 
     return (
-        <View style={styles.section}>
+        <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           <Text style={styles.sectionTitle}>Savings Progress</Text>
-          <View style={styles.card}>
+          <View style={styles.chartCard}>
             <Text style={styles.subTitle}>
               {view === 'current' ? 'Current Cycle' : 'Overall'} Savings
             </Text>
-            <Text style={styles.summaryText}>
+            <Text style={styles.metricText}>
               Goal: {currency} {savingsProgress.goal.toFixed(2)}
             </Text>
-            <Text style={[styles.summaryText, savingsProgress.current < 0 && styles.overspendingText]}>
+            <Text style={[styles.metricText, savingsProgress.current < 0 && styles.overspendingText]}>
               Current: {currency} {savingsProgress.current.toFixed(2)}
             </Text>
-            <Text style={styles.summaryText}>Status: {savingsProgress.status}</Text>
+            <Text style={styles.metricText}>Status: {savingsProgress.status}</Text>
             <View style={styles.chartContainer} pointerEvents="none">
               <ProgressChart
                   data={progressData}
-                  width={screenWidth - 80}
-                  height={220}
+                  width={screenWidth - 60}
+                  height={180}
                   strokeWidth={16}
                   radius={60}
                   chartConfig={{
@@ -839,7 +853,7 @@ const AnalyticsScreen = ({ navigation }) => {
               />
             </View>
           </View>
-        </View>
+        </Animated.View>
     );
   };
 
@@ -847,37 +861,44 @@ const AnalyticsScreen = ({ navigation }) => {
     const spendingByCategory =
         view === 'current' ? analyticsData?.current?.spendingByCategory : analyticsData?.overall?.spendingByCategory;
 
-    if (!spendingByCategory?.length) {
-      return renderNoDataCard(
+    if (view === 'current' && !spendingByCategory?.length) {
+      return renderNoData(
           'Spending by Category',
-          view === 'current' ? 'No spending data for the current cycle.' : 'No overall spending data.'
+          'No spending data available due to no active cycle.'
       );
+    }
+    if (view === 'overall' && !spendingByCategory?.length) {
+      return renderNoData('Spending by Category', 'No overall spending data.');
     }
 
     return (
-        <View style={styles.section}>
+        <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           <Text style={styles.sectionTitle}>Spending by Category</Text>
-          <View style={styles.card}>
+          <View style={styles.chartCard}>
+            <Text style={styles.subTitle}>How Your Money is Spent ({analyticsData?.overall?.currency || 'AUD'})</Text>
             {spendingByCategory.map((category, index) => renderCategoryBar(category, index, view === 'overall'))}
           </View>
-        </View>
+        </Animated.View>
     );
   };
 
   const renderInsights = () => {
     const insights = view === 'current' ? analyticsData?.current?.insights : analyticsData?.overall?.insights;
 
-    if (!insights?.length) {
-      return renderNoDataCard(
-          'Insights',
-          view === 'current' ? 'No insights available for the current cycle.' : 'No overall insights available.'
+    if (view === 'current' && !insights?.length) {
+      return renderNoData(
+          'Key Insights',
+          'No insights available due to no active cycle.'
       );
+    }
+    if (view === 'overall' && !insights?.length) {
+      return renderNoData('Key Insights', 'No overall insights available.');
     }
 
     return (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Insights</Text>
-          <View style={styles.card}>
+        <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
+          <Text style={styles.sectionTitle}>Key Insights</Text>
+          <View style={styles.chartCard}>
             {insights.map((insight) => (
                 <View key={insight.id} style={styles.insightItem}>
                   <Text style={styles.insightTitle}>{insight.title}</Text>
@@ -885,45 +906,46 @@ const AnalyticsScreen = ({ navigation }) => {
                 </View>
             ))}
           </View>
-        </View>
+        </Animated.View>
     );
   };
 
   const renderAIInsights = () => {
     if (view !== 'overall' || !analyticsData?.overall?.mlSummary) {
-      return renderNoDataCard('AI Insights', 'No AI insights available.');
+      return null;
     }
 
     const parsedInsights = parseMarkdown(analyticsData.overall.mlSummary);
+    const specialHeadings = ['Spending Overview', 'Savings Performance', 'Category Concerns', 'Warnings', 'Recommendation'];
 
     return (
-        <View style={styles.section}>
+        <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           <Text style={styles.sectionTitle}>AI Insights</Text>
-          <View style={styles.card}>
+          <View style={styles.chartCard}>
             {parsedInsights.map((component) => (
                 <Text
                     key={component.key}
                     style={[
                       styles.insightDescription,
                       component.type === 'bullet' && styles.insightBullet,
+                      component.type === 'text' && styles.insightHeading,
+                      component.type === 'text' && specialHeadings.some(heading => component.content.startsWith(heading)) && styles.insightSpecialHeading,
                     ]}
                 >
                   {component.type === 'bullet' ? '• ' : ''}{component.content}
                 </Text>
             ))}
           </View>
-        </View>
+        </Animated.View>
     );
   };
-
-  console.log('RENDER', { isLoading, error, analyticsData: !!analyticsData, view });
 
   if (isLoading) {
     return (
         <SafeAreaView style={styles.container}>
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#4A90E2" />
-            <Text style={styles.loadingText}>Loading analytics...</Text>
+            <Text style={styles.loadingText}>Loading your analytics...</Text>
           </View>
         </SafeAreaView>
     );
@@ -932,13 +954,15 @@ const AnalyticsScreen = ({ navigation }) => {
   if (!userId) {
     return (
         <SafeAreaView style={styles.container}>
-          <Text style={styles.errorText}>Please sign in to view analytics.</Text>
-          <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => navigation.navigate('SignIn')}
-          >
-            <Text style={styles.actionButtonText}>Go to Sign In</Text>
-          </TouchableOpacity>
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>Please sign in to view analytics</Text>
+            <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => navigation.navigate('SignIn')}
+            >
+              <Text style={styles.actionButtonText}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
         </SafeAreaView>
     );
   }
@@ -946,22 +970,24 @@ const AnalyticsScreen = ({ navigation }) => {
   if (error || !analyticsData || (!analyticsData.current && !analyticsData.overall)) {
     return (
         <SafeAreaView style={styles.container}>
-          <Text style={styles.errorText}>{error || 'No analytics data available.'}</Text>
-          <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => {
-                setIsLoading(true);
-                setError(null);
-                fetchAnalytics();
-              }}
-          >
-            <Text style={styles.actionButtonText}>Retry</Text>
-          </TouchableOpacity>
-          {error?.includes('Unable to connect') && (
-              <Text style={styles.errorHint}>
-                Ensure the server is running at {API_BASE_URL} and your device is on the same network.
-              </Text>
-          )}
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error || 'No analytics data available.'}</Text>
+            <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => {
+                  setIsLoading(true);
+                  setError(null);
+                  fetchAnalytics();
+                }}
+            >
+              <Text style={styles.actionButtonText}>Retry</Text>
+            </TouchableOpacity>
+            {error?.includes('Unable to connect') && (
+                <Text style={styles.errorHint}>
+                  Ensure the server is running and your device is connected.
+                </Text>
+            )}
+          </View>
         </SafeAreaView>
     );
   }
@@ -987,7 +1013,7 @@ const AnalyticsScreen = ({ navigation }) => {
           {renderSavingsProgress()}
           {renderSpendingByCategory()}
           {renderInsights()}
-          {renderAIInsights()}
+          {view === 'overall' && renderAIInsights()}
           {view === 'overall' && renderOverallSummary()}
         </ScrollView>
       </SafeAreaView>
@@ -997,26 +1023,26 @@ const AnalyticsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F5F7FA',
+    backgroundColor: '#F7FAFF',
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
+    padding: 16,
+    paddingBottom: 32,
   },
   tabContainer: {
     flexDirection: 'row',
     backgroundColor: '#FFFFFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E5E7EB',
-    elevation: 2,
+    elevation: 4,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowRadius: 4,
   },
   tab: {
     flex: 1,
-    paddingVertical: 16,
+    paddingVertical: 14,
     alignItems: 'center',
   },
   activeTab: {
@@ -1035,15 +1061,16 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   sectionTitle: {
-    fontSize: 22,
+    fontSize: 24,
     fontWeight: '700',
     color: '#1F2937',
-    marginBottom: 12,
+    marginBottom: 16,
   },
-  card: {
+  chartCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
     padding: 16,
+    marginBottom: 16,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
@@ -1056,10 +1083,10 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginBottom: 12,
   },
-  noDataCard: {
+  noDataContainer: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 16,
+    padding: 20,
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -1071,13 +1098,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6B7280',
     textAlign: 'center',
-    marginBottom: 12,
   },
   actionButton: {
     backgroundColor: '#4A90E2',
     paddingVertical: 10,
-    paddingHorizontal: 20,
+    paddingHorizontal: 24,
     borderRadius: 8,
+    marginTop: 12,
   },
   actionButtonText: {
     fontSize: 16,
@@ -1086,11 +1113,12 @@ const styles = StyleSheet.create({
   },
   chartContainer: {
     alignItems: 'center',
+    marginVertical: 12,
   },
   chart: {
-    borderRadius: 16,
+    borderRadius: 12,
   },
-  summaryText: {
+  metricText: {
     fontSize: 16,
     color: '#374151',
     marginBottom: 8,
@@ -1116,14 +1144,14 @@ const styles = StyleSheet.create({
     color: '#374151',
   },
   barContainer: {
-    height: 10,
+    height: 8,
     backgroundColor: '#E5E7EB',
-    borderRadius: 5,
+    borderRadius: 4,
     overflow: 'hidden',
   },
   bar: {
     height: '100%',
-    borderRadius: 5,
+    borderRadius: 4,
   },
   percentage: {
     fontSize: 14,
@@ -1133,6 +1161,9 @@ const styles = StyleSheet.create({
   },
   insightItem: {
     marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
   },
   insightTitle: {
     fontSize: 16,
@@ -1143,9 +1174,33 @@ const styles = StyleSheet.create({
   insightDescription: {
     fontSize: 14,
     color: '#6B7280',
+    lineHeight: 20,
   },
   insightBullet: {
     marginLeft: 12,
+    marginBottom: 8,
+  },
+  insightHeading: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#374151',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  insightSpecialHeading: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1F2937',
+    marginVertical: 10,
+  },
+  summaryItem: {
+    marginBottom: 12,
+  },
+  summaryHeading: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#4A90E2',
+    marginBottom: 4,
   },
   loadingContainer: {
     flex: 1,
@@ -1157,19 +1212,23 @@ const styles = StyleSheet.create({
     color: '#374151',
     marginTop: 12,
   },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
   errorText: {
-    fontSize: 16,
+    fontSize: 18,
     color: '#FF6B6B',
     textAlign: 'center',
-    marginHorizontal: 20,
-    marginBottom: 12,
+    marginBottom: 16,
   },
   errorHint: {
     fontSize: 14,
     color: '#6B7280',
     textAlign: 'center',
-    marginTop: 12,
-    marginHorizontal: 20,
+    marginTop: 8,
   },
 });
 

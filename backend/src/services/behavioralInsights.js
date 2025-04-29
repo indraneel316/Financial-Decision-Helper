@@ -153,7 +153,7 @@ const currencies = [
     { label: 'VES - Venezuelan Bolívar', value: 'VES', minIncome: 10000, maxIncome: 10000000 },
     { label: 'VND - Vietnamese Dong', value: 'VND', minIncome: 5000000, maxIncome: 5000000000 },
     { label: 'VUV - Vanuatu Vatu', value: 'VUV', minIncome: 50000, maxIncome: 50000000 },
-    { label: 'WST -вадь', value: 'WST', minIncome: 1000, maxIncome: 1000000 },
+    { label: 'WST - Samoan Tala', value: 'WST', minIncome: 1000, maxIncome: 1000000 },
     { label: 'XAF - Central African CFA Franc', value: 'XAF', minIncome: 500000, maxIncome: 500000000 },
     { label: 'XCD - East Caribbean Dollar', value: 'XCD', minIncome: 1000, maxIncome: 1000000 },
     { label: 'XOF - West African CFA Franc', value: 'XOF', minIncome: 500000, maxIncome: 500000000 },
@@ -162,6 +162,12 @@ const currencies = [
     { label: 'ZAR - South African Rand', value: 'ZAR', minIncome: 5000, maxIncome: 5000000 },
     { label: 'ZMW - Zambian Kwacha', value: 'ZMW', minIncome: 1000, maxIncome: 1000000 }
 ];
+
+// Helper function to normalize category names
+const normalizeCategory = (category) => {
+    return category ? category.replace(/\s+/g, '') : '';
+};
+
 const calculatePercentUsed = (value, base) => {
     if (!base || base === 0) return "N/A";
     const percent = (value / base) * 100;
@@ -172,7 +178,7 @@ const getMostCommonDescription = (txns) => {
     if (!txns?.length) return { description: "None", count: 0, percentage: 0 };
     const descriptionCount = {};
     txns.forEach(txn => {
-        const desc = (txn.description || txn.purchaseDescription || "No Description").toLowerCase();
+        const desc = (txn.description || txn.purchaseDescription || "No Description").toLowerCase().trim();
         descriptionCount[desc] = (descriptionCount[desc] || 0) + 1;
     });
     let maxCount = 0;
@@ -286,7 +292,7 @@ export async function deriveBehavioralInsights(userId, options = {}) {
             const cycleCurrency = cycle.currency || userCurrency;
             const rate = await getAverageRate(cycleCurrency);
             const userRate = await getAverageRate(userCurrency);
-            const conversionFactor = rate / userRate;
+            const conversionFactor = userRate !== 0 ? rate / userRate : 1;
 
             const spentSoFar = parseFloat(cycle.spentSoFar || '0') * conversionFactor;
             const moneyAllocation = parseFloat(cycle.totalMoneyAllocation || cycle.budget || '0') * conversionFactor;
@@ -301,17 +307,21 @@ export async function deriveBehavioralInsights(userId, options = {}) {
             totalMoneyAllocation += moneyAllocation;
             savingsTarget += cycleSavingsTarget;
 
+            // Normalize category names for categorySpent
             Object.entries(cycle.categorySpent || {}).forEach(([cat, amount]) => {
+                const normalizedCat = normalizeCategory(cat);
                 const convertedAmount = parseFloat(amount || '0') * conversionFactor;
-                if (!isNaN(convertedAmount)) {
-                    totalCategorySpent[cat] = (parseFloat(totalCategorySpent[cat] || 0) + convertedAmount).toFixed(2);
+                if (!isNaN(convertedAmount) && normalizedCat) {
+                    totalCategorySpent[normalizedCat] = (
+                        parseFloat(totalCategorySpent[normalizedCat] || 0) + convertedAmount
+                    ).toFixed(2);
                 }
             });
 
             // Handle top-level allocated* fields
             Object.entries(cycle).forEach(([key, amount]) => {
                 if (!key.startsWith('allocated')) return;
-                const category = key.replace(/^allocated/, '');
+                const category = normalizeCategory(key.replace(/^allocated/, ''));
                 if (!category) return;
                 const convertedAmount = Number(amount || 0) * conversionFactor;
                 if (!isNaN(convertedAmount)) {
@@ -327,12 +337,14 @@ export async function deriveBehavioralInsights(userId, options = {}) {
 
             postRecommendationTxns.forEach(txn => {
                 if (!txn?.category && !txn?.purchaseCategory) return;
+                const normalizedCategory = normalizeCategory(txn.category || txn.purchaseCategory);
+                if (!normalizedCategory) return;
                 const txnPlain = txn.toObject ? txn.toObject() : { ...txn };
                 allTxns.push({
                     ...txnPlain,
                     cycleId: cycle._id.toString(),
                     amount: parseFloat(txn.amount || txn.purchaseAmount || '0'),
-                    category: txn.category || txn.purchaseCategory,
+                    category: normalizedCategory,
                     description: txn.description || txn.purchaseDescription,
                     date: txn.date || txn.transactionTimestamp,
                     currency: txn.currency || cycleCurrency,
@@ -345,8 +357,8 @@ export async function deriveBehavioralInsights(userId, options = {}) {
         totalMoneyAllocation = Number(totalMoneyAllocation.toFixed(2));
         savingsTarget = Number(savingsTarget.toFixed(2));
 
-        if (startDate) allTxns = allTxns.filter(txn => new Date(txn.date) >= startDate);
-        if (endDate) allTxns = allTxns.filter(txn => new Date(txn.date) <= endDate);
+        if (startDate) allTxns = allTxns.filter(txn => new Date(txn.date) >= new Date(startDate));
+        if (endDate) allTxns = allTxns.filter(txn => new Date(txn.date) <= new Date(endDate));
 
         const thresholds = await fetchLargeTransactionThresholds(userCurrency);
         const largeThreshold = thresholds[userCurrency] || 500;
@@ -356,7 +368,7 @@ export async function deriveBehavioralInsights(userId, options = {}) {
             if (!txn.currency || !txn.category || isNaN(amount)) return 0;
             const rate = await getAverageRate(txn.currency);
             const userRate = await getAverageRate(userCurrency);
-            const convertedAmount = amount * (rate / userRate);
+            const convertedAmount = userRate !== 0 ? amount * (rate / userRate) : amount;
             if (!isNaN(convertedAmount)) {
                 txn.convertedAmount = convertedAmount;
                 return convertedAmount;
@@ -405,7 +417,7 @@ export async function deriveBehavioralInsights(userId, options = {}) {
 
         const validDates = allTxns.filter(txn => !isNaN(new Date(txn.date).getTime())).map(txn => new Date(txn.date).getDay());
         const avgTxnDay = validDates.length > 0
-            ? new Date(validDates.reduce((sum, day) => sum + day, 0) / validDates.length * 24 * 60 * 60 * 1000)
+            ? new Date(0, 0, 1 + Math.round(validDates.reduce((sum, day) => sum + day, 0) / validDates.length))
                 .toLocaleString('en-US', { weekday: 'long' })
             : "N/A";
 
