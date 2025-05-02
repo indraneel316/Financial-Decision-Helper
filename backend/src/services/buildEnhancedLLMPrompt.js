@@ -83,7 +83,7 @@ export async function buildEnhancedLLMPrompt(currentCycleId, userId, newTxn) {
         "Commute": currentCycle.allocatedCommute,
         "Shopping": currentCycle.allocatedShopping,
         "Dining Out": currentCycle.allocatedDiningOut,
-        "Medical Expense": currentCycle.allocatedMedicalExpense,
+        "Medical Expenses": currentCycle.allocatedMedicalExpenses,
         "Accommodation": currentCycle.allocatedAccommodation,
         "Vacation": currentCycle.allocatedVacation,
         "Other Expenses": currentCycle.allocatedOtherExpenses
@@ -147,7 +147,7 @@ CURRENT CYCLE DETAILS:
    - Commute: ${formatCurrency(currentCycle.allocatedCommute)}
    - Shopping: ${formatCurrency(currentCycle.allocatedShopping)}
    - Dining Out: ${formatCurrency(currentCycle.allocatedDiningOut)}
-   - Medical Expense: ${formatCurrency(currentCycle.allocatedMedicalExpense)}
+   - Medical Expenses: ${formatCurrency(currentCycle.allocatedMedicalExpenses)}
    - Accommodation: ${formatCurrency(currentCycle.allocatedAccommodation)}
    - Vacation: ${formatCurrency(currentCycle.allocatedVacation)}
    - Other Expenses: ${formatCurrency(currentCycle.allocatedOtherExpenses)}

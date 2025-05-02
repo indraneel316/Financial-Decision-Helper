@@ -12,10 +12,53 @@ export async function getUserCyclesController(req, res) {
 }
 
 
+export async function getPastCycles(req, res) {
+    try {
+        const { userId } = req.params;
+        const { page = 1, limit = 10 } = req.query;
+
+        // Validate pagination parameters
+        const pageNum = parseInt(page, 10);
+        const limitNum = parseInt(limit, 10);
+
+        if (isNaN(pageNum) || pageNum < 1) {
+            return res.status(400).json({ error: 'Page must be a positive integer' });
+        }
+        if (isNaN(limitNum) || limitNum < 1) {
+            return res.status(400).json({ error: 'Limit must be a positive integer' });
+        }
+
+        // Calculate skip for pagination
+        const skip = (pageNum - 1) * limitNum;
+
+        // Fetch paginated cycles and total count
+        const { cycles, totalCycles } = await userService.getPastCycles(userId, skip, limitNum);
+
+        // Calculate total pages
+        const totalPages = Math.ceil(totalCycles / limitNum);
+
+        // Prepare response
+        const response = {
+            cycles: cycles || [],
+            pagination: {
+                currentPage: pageNum,
+                limit: limitNum,
+                totalCycles,
+                totalPages,
+            },
+        };
+
+        res.json(response);
+    } catch (err) {
+        console.error(`Error fetching cycles for user ${req.params.userId}:`, err.message);
+        res.status(404).json({ error: err.message });
+    }
+}
+
+
 export async function updateUserController(req, res) {
     try {
         const { userId } = req.params;
-        console.log("TRACK DATA 3",req.body);
         const updatedUser = await userService.updateUserById(userId, req.body);
         res.json({ message: 'User updated successfully', user: updatedUser });
     } catch (err) {

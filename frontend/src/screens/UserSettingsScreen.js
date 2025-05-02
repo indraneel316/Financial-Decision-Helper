@@ -8,6 +8,7 @@ import {
     TouchableOpacity,
     ScrollView,
     Alert,
+    StatusBar,
 } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
 import RNPickerSelect from 'react-native-picker-select';
@@ -185,7 +186,7 @@ const currencies = [
     { label: 'UAH - Ukrainian Hryvnia', value: 'UAH', minIncome: 10000, maxIncome: 10000000 },
     { label: 'UGX - Ugandan Shilling', value: 'UGX', minIncome: 500000, maxIncome: 500000000 },
     { label: 'USD - US Dollar', value: 'USD', minIncome: 500, maxIncome: 100000 },
-    { label: 'UYU - Uruguayan Peso',  value: 'UYU', minIncome: 10000, maxIncome: 10000000 },
+    { label: 'UYU - Uruguayan Peso', value: 'UYU', minIncome: 10000, maxIncome: 10000000 },
     { label: 'UZS - Uzbekistan Som', value: 'UZS', minIncome: 5000000, maxIncome: 5000000000 },
     { label: 'VES - Venezuelan Bolívar', value: 'VES', minIncome: 1000, maxIncome: 1000000 },
     { label: 'VND - Vietnamese Dong', value: 'VND', minIncome: 5000000, maxIncome: 5000000000 },
@@ -206,9 +207,11 @@ const UserSettingsScreen = ({ navigation }) => {
     const [settings, setSettings] = useState(null);
     const [isEditing, setIsEditing] = useState(false);
     const [hasActiveCycle, setHasActiveCycle] = useState(false);
+    const [personalCardHeight, setPersonalCardHeight] = useState(0);
+    const [financialCardHeight, setFinancialCardHeight] = useState(0);
+    const [preferencesCardHeight, setPreferencesCardHeight] = useState(0);
 
     useEffect(() => {
-        console.log('UserSettingsScreen - User from AuthContext:', user);
         if (user) {
             const newSettings = {
                 email: user.email || '',
@@ -222,19 +225,16 @@ const UserSettingsScreen = ({ navigation }) => {
                 psychologicalNotes: user.psychologicalNotes || '',
             };
             setSettings(newSettings);
-            console.log('UserSettingsScreen - Settings set:', newSettings);
 
             // Check for active budget cycles from user.cycle
             const checkActiveCycles = () => {
                 const currentDate = new Date();
-                console.log("USER CYCLES ", user.cycle)
                 const activeCycleExists = user.cycle && Array.isArray(user.cycle) &&
                     user.cycle.some(cycle => {
                         const cycleData = cycle.budget || cycle;
                         return cycleData.endDate && new Date(cycleData.endDate) > currentDate;
                     });
                 setHasActiveCycle(activeCycleExists);
-                console.log('UserSettingsScreen - Active cycle exists:', activeCycleExists);
             };
             checkActiveCycles();
         }
@@ -306,7 +306,6 @@ const UserSettingsScreen = ({ navigation }) => {
             };
 
             const updatedUser = await updateProfile(updatedData);
-            console.log('UserSettingsScreen - Updated user from backend:', updatedUser);
             setSettings((prev) => ({
                 ...prev,
                 email: updatedUser.email || prev.email || '',
@@ -329,8 +328,9 @@ const UserSettingsScreen = ({ navigation }) => {
     if (!settings) {
         return (
             <SafeAreaView style={styles.container}>
+                <StatusBar backgroundColor="#4CAF50" barStyle="light-content" />
                 <View style={styles.loadingContainer}>
-                    <Text>Loading user settings...</Text>
+                    <Text style={styles.loadingText}>Loading user settings...</Text>
                 </View>
             </SafeAreaView>
         );
@@ -338,10 +338,11 @@ const UserSettingsScreen = ({ navigation }) => {
 
     return (
         <SafeAreaView style={styles.container}>
+            <StatusBar backgroundColor="#4CAF50" barStyle="light-content" />
             <View style={styles.header}>
-                <Text style={styles.screenTitle}>User Settings</Text>
+                <Text style={styles.screenTitle}>Settings</Text>
                 <TouchableOpacity
-                    style={styles.editButton}
+                    style={[styles.editButton, isEditing && styles.editButtonActive]}
                     onPress={() => {
                         if (isEditing && user) {
                             setSettings({
@@ -358,6 +359,7 @@ const UserSettingsScreen = ({ navigation }) => {
                         }
                         setIsEditing(!isEditing);
                     }}
+                    activeOpacity={0.6}
                 >
                     <Text style={styles.editButtonText}>{isEditing ? 'Cancel' : 'Edit'}</Text>
                 </TouchableOpacity>
@@ -365,18 +367,26 @@ const UserSettingsScreen = ({ navigation }) => {
 
             <ScrollView contentContainerStyle={styles.content}>
                 {/* Personal Information Section */}
-                <View style={styles.settingsCard}>
+                <View
+                    style={[styles.settingsCard, styles.firstCard]}
+                    onLayout={(event) => {
+                        const { height } = event.nativeEvent.layout;
+                        setPersonalCardHeight(height + 16); // Add padding for safety
+                    }}
+                >
                     <Text style={styles.sectionTitle}>Personal Information</Text>
 
                     <View style={styles.inputContainer}>
                         <Text style={styles.label}>Email</Text>
                         {isEditing ? (
                             <TextInput
-                                style={styles.input}
+                                style={[styles.input, isEditing && styles.inputActive]}
                                 value={settings.email}
                                 onChangeText={(text) => handleChange('email', text)}
                                 keyboardType="email-address"
                                 autoCapitalize="none"
+                                placeholder="Enter your email"
+                                placeholderTextColor="#9CA3AF"
                             />
                         ) : (
                             <Text style={styles.value}>{settings.email}</Text>
@@ -387,10 +397,12 @@ const UserSettingsScreen = ({ navigation }) => {
                         <Text style={styles.label}>Age</Text>
                         {isEditing ? (
                             <TextInput
-                                style={styles.input}
+                                style={[styles.input, isEditing && styles.inputActive]}
                                 value={settings.age ? settings.age.toString() : ''}
                                 onChangeText={(text) => handleChange('age', text)}
                                 keyboardType="numeric"
+                                placeholder="Enter your age"
+                                placeholderTextColor="#9CA3AF"
                             />
                         ) : (
                             <Text style={styles.value}>{settings.age || 'Not set'}</Text>
@@ -401,9 +413,11 @@ const UserSettingsScreen = ({ navigation }) => {
                         <Text style={styles.label}>Occupation</Text>
                         {isEditing ? (
                             <TextInput
-                                style={styles.input}
+                                style={[styles.input, isEditing && styles.inputActive]}
                                 value={settings.occupationLevel}
                                 onChangeText={(text) => handleChange('occupationLevel', text)}
+                                placeholder="Enter your occupation"
+                                placeholderTextColor="#9CA3AF"
                             />
                         ) : (
                             <Text style={styles.value}>{settings.occupationLevel || 'Not set'}</Text>
@@ -416,7 +430,7 @@ const UserSettingsScreen = ({ navigation }) => {
                             <Picker
                                 selectedValue={settings.maritalStatus}
                                 onValueChange={(itemValue) => handleChange('maritalStatus', itemValue)}
-                                style={styles.picker}
+                                style={[styles.picker, isEditing && styles.pickerActive]}
                             >
                                 {maritalStatuses.map((status) => (
                                     <Picker.Item
@@ -435,10 +449,12 @@ const UserSettingsScreen = ({ navigation }) => {
                         <Text style={styles.label}>Family Size</Text>
                         {isEditing ? (
                             <TextInput
-                                style={styles.input}
+                                style={[styles.input, isEditing && styles.inputActive]}
                                 value={settings.familySize.toString()}
                                 onChangeText={(text) => handleChange('familySize', text)}
                                 keyboardType="numeric"
+                                placeholder="Enter family size"
+                                placeholderTextColor="#9CA3AF"
                             />
                         ) : (
                             <Text style={styles.value}>{settings.familySize}</Text>
@@ -447,17 +463,25 @@ const UserSettingsScreen = ({ navigation }) => {
                 </View>
 
                 {/* Financial Information Section */}
-                <View style={styles.settingsCard}>
+                <View
+                    style={styles.settingsCard}
+                    onLayout={(event) => {
+                        const { height } = event.nativeEvent.layout;
+                        setFinancialCardHeight(height + 16); // Add padding for safety
+                    }}
+                >
                     <Text style={styles.sectionTitle}>Financial Information</Text>
 
                     <View style={styles.inputContainer}>
-                        <Text style={styles.label}>Monthly Income Level</Text>
+                        <Text style={styles.label}>Monthly Income</Text>
                         {isEditing ? (
                             <TextInput
-                                style={styles.input}
+                                style={[styles.input, isEditing && styles.inputActive]}
                                 value={settings.monthlyIncomeLevel.toString()}
                                 onChangeText={(text) => handleChange('monthlyIncomeLevel', text)}
                                 keyboardType="numeric"
+                                placeholder="Enter monthly income"
+                                placeholderTextColor="#9CA3AF"
                             />
                         ) : (
                             <Text style={styles.value}>
@@ -476,6 +500,11 @@ const UserSettingsScreen = ({ navigation }) => {
                                 style={pickerSelectStyles}
                                 placeholder={{ label: 'Select a currency...', value: null }}
                                 useNativeAndroidPickerStyle={false}
+                                Icon={() => (
+                                    <View style={styles.chevron}>
+                                        <Text style={styles.chevronText}>▼</Text>
+                                    </View>
+                                )}
                             />
                         ) : (
                             <View>
@@ -493,7 +522,13 @@ const UserSettingsScreen = ({ navigation }) => {
                 </View>
 
                 {/* Preferences Section */}
-                <View style={styles.settingsCard}>
+                <View
+                    style={styles.settingsCard}
+                    onLayout={(event) => {
+                        const { height } = event.nativeEvent.layout;
+                        setPreferencesCardHeight(height + 16); // Add padding for safety
+                    }}
+                >
                     <Text style={styles.sectionTitle}>Preferences</Text>
 
                     <View style={styles.inputContainer}>
@@ -506,6 +541,11 @@ const UserSettingsScreen = ({ navigation }) => {
                                 style={pickerSelectStyles}
                                 placeholder={{ label: 'Select a timezone...', value: null }}
                                 useNativeAndroidPickerStyle={false}
+                                Icon={() => (
+                                    <View style={styles.chevron}>
+                                        <Text style={styles.chevronText}>▼</Text>
+                                    </View>
+                                )}
                             />
                         ) : (
                             <Text style={styles.value}>{settings.timeZone}</Text>
@@ -513,14 +553,16 @@ const UserSettingsScreen = ({ navigation }) => {
                     </View>
 
                     <View style={styles.inputContainer}>
-                        <Text style={styles.label}>Psychological Notes</Text>
+                        <Text style={styles.label}>Notes</Text>
                         {isEditing ? (
                             <TextInput
-                                style={styles.input}
+                                style={[styles.input, styles.multilineInput, isEditing && styles.inputActive]}
                                 value={settings.psychologicalNotes}
                                 onChangeText={(text) => handleChange('psychologicalNotes', text)}
                                 multiline
                                 numberOfLines={3}
+                                placeholder="Enter notes (optional)"
+                                placeholderTextColor="#9CA3AF"
                             />
                         ) : (
                             <Text style={styles.value}>{settings.psychologicalNotes || 'None'}</Text>
@@ -529,7 +571,11 @@ const UserSettingsScreen = ({ navigation }) => {
                 </View>
 
                 {isEditing && (
-                    <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
+                    <TouchableOpacity
+                        style={[styles.saveButton, isEditing && styles.saveButtonActive]}
+                        onPress={handleSave}
+                        activeOpacity={0.6}
+                    >
                         <Text style={styles.saveButtonText}>Save Changes</Text>
                     </TouchableOpacity>
                 )}
@@ -541,127 +587,200 @@ const UserSettingsScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#F5F5F5',
+        backgroundColor: '#F6F8FA', // Matches BudgetCycleScreen.js
     },
     loadingContainer: {
         flex: 1,
         justifyContent: 'center',
         alignItems: 'center',
     },
+    loadingText: {
+        fontSize: 18,
+        color: '#1A1A1A',
+        fontWeight: '500',
+    },
     header: {
         flexDirection: 'row',
         justifyContent: 'space-between',
         alignItems: 'center',
-        padding: 20,
-        backgroundColor: '#FFF',
-        borderBottomWidth: 1,
-        borderBottomColor: '#EEE',
+        paddingHorizontal: 16,
+        paddingVertical: 16,
+        backgroundColor: '#FFFFFF',
+        borderBottomWidth: 0.5,
+        borderBottomColor: 'rgba(0, 0, 0, 0.05)',
     },
     screenTitle: {
-        fontSize: 24,
-        fontWeight: 'bold',
-        color: '#333',
+        fontSize: 28,
+        fontWeight: '700',
+        color: '#1A1A1A',
+        letterSpacing: -0.5,
     },
     editButton: {
         backgroundColor: '#4CAF50',
         paddingVertical: 8,
-        paddingHorizontal: 15,
-        borderRadius: 20,
+        paddingHorizontal: 16,
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    editButtonActive: {
+        backgroundColor: '#4CAF50', // Darker green when active
     },
     editButtonText: {
-        color: '#FFF',
+        color: '#FFFFFF',
+        fontSize: 16,
         fontWeight: '600',
+        letterSpacing: 0.5,
     },
     content: {
-        padding: 20,
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 48, // Extra padding for scroll end
     },
     settingsCard: {
-        backgroundColor: '#FFF',
-        borderRadius: 12,
-        padding: 20,
-        marginBottom: 20,
+        backgroundColor: 'rgba(255, 255, 255, 0.95)', // Glassmorphism-like, matches BudgetCycleScreen.js
+        borderRadius: 16,
+        padding: 16, // Reduced from 20 for compactness
+        marginBottom: 12, // Reduced from 16
         shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 1,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 8,
+        elevation: 3,
+        borderWidth: 0.5,
+        borderColor: 'rgba(0, 0, 0, 0.05)',
+    },
+    firstCard: {
+        marginTop: 12, // Reduced from 16
     },
     sectionTitle: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: '#333',
-        marginBottom: 15,
+        fontSize: 20,
+        fontWeight: '600',
+        color: '#1A1A1A',
+        marginBottom: 12,
     },
     inputContainer: {
-        marginBottom: 15,
+        marginBottom: 16, // Reduced from 20
     },
     label: {
-        fontSize: 16,
-        color: '#666',
-        marginBottom: 5,
+        fontSize: 14,
+        fontWeight: '500',
+        color: '#1A1A1A',
+        marginBottom: 6,
     },
     input: {
-        backgroundColor: '#F9F9F9',
-        borderRadius: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.8)', // Matches BudgetCycleScreen.js
+        borderRadius: 10,
         padding: 12,
-        fontSize: 16,
+        fontSize: 15,
+        color: '#1A1A1A',
         borderWidth: 1,
-        borderColor: '#DDD',
-        color: '#333',
+        borderColor: 'rgba(0, 0, 0, 0.1)',
+        minHeight: 44, // Consistent height with picker
+    },
+    inputActive: {
+        backgroundColor: '#E6ECEF', // Subtle background tint instead of green border
+    },
+    multilineInput: {
+        minHeight: 80,
+        textAlignVertical: 'top',
+        paddingTop: 12,
     },
     picker: {
-        backgroundColor: '#F9F9F9',
-        borderRadius: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 10,
         borderWidth: 1,
-        borderColor: '#DDD',
+        borderColor: 'rgba(0, 0, 0, 0.1)',
+        fontSize: 15,
+        color: '#1A1A1A',
+        minHeight: 44, // Consistent height
+    },
+    pickerActive: {
+        backgroundColor: '#E6ECEF', // Subtle background tint
     },
     value: {
-        fontSize: 16,
-        color: '#333',
+        fontSize: 15,
+        color: '#1A1A1A',
+        paddingVertical: 12,
     },
     disabledText: {
-        color: '#999',
+        color: '#6B7280',
     },
     noteText: {
         fontSize: 14,
-        color: '#FF6B6B',
-        marginTop: 5,
+        color: '#E53935',
+        marginTop: 8,
     },
     saveButton: {
         backgroundColor: '#4CAF50',
-        paddingVertical: 15,
-        borderRadius: 8,
+        paddingVertical: 14,
+        borderRadius: 12,
         alignItems: 'center',
-        marginTop: 10,
+        marginTop: 12,
+        marginHorizontal: 16,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
+        elevation: 3,
+    },
+    saveButtonActive: {
+        backgroundColor: '#4CAF50', // Darker green when pressed
     },
     saveButtonText: {
-        color: '#FFF',
+        color: '#FFFFFF',
         fontSize: 16,
         fontWeight: '600',
+        letterSpacing: 0.5,
+    },
+    chevron: {
+        position: 'absolute',
+        right: 12, // Inset from right edge
+        top: 22, // Center for a 44px height field (44/2 = 22)
+        transform: [{ translateY: -7 }], // Adjust for chevron text height
+    },
+    chevronText: {
+        fontSize: 14,
+        color: '#6B7280',
     },
 });
 
 const pickerSelectStyles = StyleSheet.create({
     inputIOS: {
-        backgroundColor: '#F9F9F9',
-        borderRadius: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 10,
         padding: 12,
-        fontSize: 16,
+        fontSize: 15,
+        color: '#1A1A1A',
         borderWidth: 1,
-        borderColor: '#DDD',
-        color: '#333',
+        borderColor: 'rgba(0, 0, 0, 0.1)',
+        paddingRight: 30, // Space for chevron
+        minHeight: 44, // Consistent height
+        justifyContent: 'center', // Ensure text is centered vertically
+    },
+    inputIOSActive: {
+        backgroundColor: '#E6ECEF', // Subtle background tint
     },
     inputAndroid: {
-        backgroundColor: '#F9F9F9',
-        borderRadius: 8,
+        backgroundColor: 'rgba(255, 255, 255, 0.8)',
+        borderRadius: 10,
         padding: 12,
-        fontSize: 16,
+        fontSize: 15,
+        color: '#1A1A1A',
         borderWidth: 1,
-        borderColor: '#DDD',
-        color: '#333',
+        borderColor: 'rgba(0, 0, 0, 0.1)',
+        paddingRight: 30, // Space for chevron
+        minHeight: 44, // Consistent height
+        justifyContent: 'center', // Ensure text is centered vertically
+    },
+    inputAndroidActive: {
+        backgroundColor: '#E6ECEF', // Subtle background tint
     },
     placeholder: {
-        color: '#999',
+        color: '#9CA3AF',
     },
 });
 

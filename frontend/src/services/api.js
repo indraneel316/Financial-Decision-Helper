@@ -19,7 +19,6 @@ export const userService = {
   login: async (credentials) => {
     try {
       const response = await axios.post(`${API_BASE_URL}/auth/signin`, credentials);
-      console.log("TRACK DATA 2", response.data);
       return response.data;
     } catch (error) {
       throw error.response ? error.response.data : error.message;
@@ -41,7 +40,6 @@ export const userService = {
   updateProfile: async (userId, userData, token) => {
     try {
       const response = await axios.put(`${API_BASE_URL}/users/${userId}`, userData);
-      console.log("RESPONSE TRACK DATA ", response.data);
       return response.data;
     } catch (error) {
       throw error.response ? error.response.data : error.message;
@@ -77,7 +75,6 @@ export const budgetService = {
           'Content-Type': 'application/json',
         },
       });
-      console.log('API response:', response.data);
       return response.data; // { message: 'Budget created successfully', budget }
     } catch (error) {
       if (error.response && error.response.data && error.response.data.error) {
@@ -178,7 +175,6 @@ export const transactionService = {
         headers: { Authorization: `Bearer ${token}` },
         params: { page, limit },
       });
-      console.log("getTransactionsByBudgetCycle response:", response.status, response.data);
       return response.data; // Returns { transactions, pagination }
     } catch (error) {
       throw error.response ? error.response.data : error.message;

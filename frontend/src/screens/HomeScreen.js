@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ActivityIndicat
 import { useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
 import { AuthContext } from '../contexts/AuthContext';
+import Ionicons from 'react-native-vector-icons/Ionicons';
 
 const HomeScreen = ({ navigation }) => {
   const { user, setUser } = useContext(AuthContext);
@@ -10,9 +11,9 @@ const HomeScreen = ({ navigation }) => {
   const [analytics, setAnalytics] = useState(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [error, setError] = useState(null);
-  const fetchRef = useRef(null); // Track ongoing fetches
+  const fetchRef = useRef(null);
 
-  const API_BASE_URL = 'http://10.0.0.115:5001/api'; // Unified with AnalyticsScreen.js
+  const API_BASE_URL = 'http://10.0.0.115:5001/api';
 
   const fetchData = async (isFocusRefresh = false) => {
     if (!user?.userId) {
@@ -23,8 +24,6 @@ const HomeScreen = ({ navigation }) => {
     }
 
     if (!user?.cycle?.[0]?.budgetCycleId) {
-      // No budget cycle is valid; skip fetch and clear loading
-      console.log('No budget cycle present; skipping fetch');
       setIsInitialLoading(false);
       setError(null);
       setTransactions([]);
@@ -32,7 +31,7 @@ const HomeScreen = ({ navigation }) => {
       return;
     }
 
-    const fetchId = Date.now(); // Unique ID for this fetch
+    const fetchId = Date.now();
     fetchRef.current = fetchId;
 
     try {
@@ -43,7 +42,6 @@ const HomeScreen = ({ navigation }) => {
 
       const budgetCycleId = user.cycle[0].budgetCycleId;
 
-      // Parallelize API calls with individual error handling
       const promises = [
         axios.get(`${API_BASE_URL}/budget-cycles/${budgetCycleId}`).catch(err => ({
           error: err,
@@ -61,13 +59,11 @@ const HomeScreen = ({ navigation }) => {
 
       const [budgetCycleResult, transactionsResult, analyticsResult] = await Promise.all(promises);
 
-      // Check if fetch is still valid
       if (fetchRef.current !== fetchId) {
         console.log(`Fetch ${fetchId} aborted: Superseded by newer fetch`);
         return;
       }
 
-      // Process budget cycle
       if (budgetCycleResult.error) {
         console.error('Budget cycle fetch error:', budgetCycleResult.error);
       } else {
@@ -78,18 +74,15 @@ const HomeScreen = ({ navigation }) => {
         }));
       }
 
-      // Process transactions
       if (transactionsResult.error) {
         console.error('Transactions fetch error:', transactionsResult.error);
       } else {
-        console.log('HOME SCREEN RAW RESPONSE:', transactionsResult.data);
         let fetchedTransactions = Array.isArray(transactionsResult.data)
             ? transactionsResult.data
             : transactionsResult.data.transactions && Array.isArray(transactionsResult.data.transactions)
                 ? transactionsResult.data.transactions
                 : [];
 
-        console.log('HOME SCREEN TRANSACTIONS:', fetchedTransactions);
 
         const mappedTransactions = fetchedTransactions.map(txn => ({
           description: txn.purchaseDescription || 'Transaction',
@@ -105,39 +98,13 @@ const HomeScreen = ({ navigation }) => {
         setTransactions(sortedTransactions);
       }
 
-      // Process analytics
       if (analyticsResult.error) {
         console.error('Analytics fetch error:', analyticsResult.error);
       } else {
         setAnalytics(analyticsResult.data);
       }
 
-      // Log debug info
-      console.log('BUDGET CYCLE DEBUG:', {
-        budgetCycleId,
-        spentSoFar: budgetCycleResult.data?.spentSoFar ?? user.cycle[0].spentSoFar,
-        categorySpent: budgetCycleResult.data?.categorySpent ?? user.cycle[0].categorySpent,
-        transactionTotal: transactionsResult.data
-            ? (Array.isArray(transactionsResult.data)
-                    ? transactionsResult.data
-                    : transactionsResult.data.transactions || []
-            )
-                .reduce((sum, txn) => sum + parseFloat(txn.purchaseAmount || 0), 0)
-                .toFixed(2)
-            : 'N/A',
-        transactions: transactionsResult.data
-            ? (Array.isArray(transactionsResult.data)
-                    ? transactionsResult.data
-                    : transactionsResult.data.transactions || []
-            ).map(txn => ({
-              purchaseDescription: txn.purchaseDescription,
-              purchaseAmount: txn.purchaseAmount,
-              purchaseCategory: txn.purchaseCategory,
-            }))
-            : [],
-      });
 
-      // Set error only if all calls failed
       if (budgetCycleResult.error && transactionsResult.error && analyticsResult.error) {
         setError('Failed to load data. Please try again.');
       } else {
@@ -152,13 +119,11 @@ const HomeScreen = ({ navigation }) => {
       setError('Failed to load data. Please try again.');
     } finally {
       if (fetchRef.current === fetchId) {
-        console.log(`Fetch ${fetchId} completed, resetting states`);
         setIsInitialLoading(false);
       }
     }
   };
 
-  // Debounced fetch to prevent rapid triggers
   const debouncedFetch = useCallback(() => {
     let timeout;
     return () => {
@@ -176,8 +141,7 @@ const HomeScreen = ({ navigation }) => {
         const fetch = debouncedFetch();
         fetch();
         return () => {
-          fetchRef.current = null; // Cleanup on unfocus
-          console.log('useFocusEffect cleanup');
+          fetchRef.current = null;
         };
       }, [debouncedFetch])
   );
@@ -208,7 +172,7 @@ const HomeScreen = ({ navigation }) => {
       Utilities: 'Utilities',
       Shopping: 'Shopping',
       DiningOut: 'Dining Out',
-      MedicalExpense: 'Medical',
+      MedicalExpenses: 'Medical',
       Accommodation: 'Accommodation',
       Vacation: 'Vacation',
       OtherExpenses: 'Other'
@@ -287,12 +251,12 @@ const HomeScreen = ({ navigation }) => {
 
               <TouchableOpacity
                   style={styles.menuItem}
-                  onPress={() => navigation.navigate('Recommendations')}
+                  onPress={() => navigation.navigate('History')}
               >
                 <View style={[styles.menuIcon, { backgroundColor: '#FFF3E0' }]}>
-                  <Text style={styles.menuIconText}>💡</Text>
+                  <Ionicons name="time-outline" size={24} color="#333" />
                 </View>
-                <Text style={styles.menuText}>Recommendations</Text>
+                <Text style={styles.menuText}>History</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -314,7 +278,7 @@ const HomeScreen = ({ navigation }) => {
   const totalBudget = budgetCycle.totalMoneyAllocation;
   const spent = budgetCycle.spentSoFar;
   const remaining = calculateRemaining(totalBudget, spent);
-  const currency = budgetCycle.currency || 'AUD'; // Fallback to AUD
+  const currency = budgetCycle.currency || 'AUD';
   const cycleDate = getCycleDate();
 
   return (
@@ -375,12 +339,12 @@ const HomeScreen = ({ navigation }) => {
 
             <TouchableOpacity
                 style={styles.menuItem}
-                onPress={() => navigation.navigate('Recommendations')}
+                onPress={() => navigation.navigate('History')}
             >
               <View style={[styles.menuIcon, { backgroundColor: '#FFF3E0' }]}>
-                <Text style={styles.menuIconText}>💡</Text>
+                <Ionicons name="time-outline" size={24} color="#333" />
               </View>
-              <Text style={styles.menuText}>Recommendations</Text>
+              <Text style={styles.menuText}>History</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -629,19 +593,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#E53935',
-  },
-  addTransactionButton: {
-    backgroundColor: '#4CAF50',
-    margin: 20,
-    marginTop: 5,
-    padding: 15,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  addTransactionButtonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: '600',
   },
   errorText: {
     fontSize: 16,

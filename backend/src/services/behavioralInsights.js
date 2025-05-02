@@ -164,9 +164,6 @@ const currencies = [
 ];
 
 // Helper function to normalize category names
-const normalizeCategory = (category) => {
-    return category ? category.replace(/\s+/g, '') : '';
-};
 
 const calculatePercentUsed = (value, base) => {
     if (!base || base === 0) return "N/A";
@@ -271,7 +268,6 @@ export async function deriveBehavioralInsights(userId, options = {}) {
             : [];
         const cycleCount = completedCycles.length;
 
-        console.log("TRACK DATA 22 ", userCurrency);
         let allTxns = [];
         let totalSpentSoFar = 0;
         let totalCategorySpent = {};
@@ -309,7 +305,7 @@ export async function deriveBehavioralInsights(userId, options = {}) {
 
             // Normalize category names for categorySpent
             Object.entries(cycle.categorySpent || {}).forEach(([cat, amount]) => {
-                const normalizedCat = normalizeCategory(cat);
+                const normalizedCat = cat
                 const convertedAmount = parseFloat(amount || '0') * conversionFactor;
                 if (!isNaN(convertedAmount) && normalizedCat) {
                     totalCategorySpent[normalizedCat] = (
@@ -321,7 +317,7 @@ export async function deriveBehavioralInsights(userId, options = {}) {
             // Handle top-level allocated* fields
             Object.entries(cycle).forEach(([key, amount]) => {
                 if (!key.startsWith('allocated')) return;
-                const category = normalizeCategory(key.replace(/^allocated/, ''));
+                const category = key.replace(/^allocated/, '');
                 if (!category) return;
                 const convertedAmount = Number(amount || 0) * conversionFactor;
                 if (!isNaN(convertedAmount)) {
@@ -337,7 +333,7 @@ export async function deriveBehavioralInsights(userId, options = {}) {
 
             postRecommendationTxns.forEach(txn => {
                 if (!txn?.category && !txn?.purchaseCategory) return;
-                const normalizedCategory = normalizeCategory(txn.category || txn.purchaseCategory);
+                const normalizedCategory = txn.category || txn.purchaseCategory;
                 if (!normalizedCategory) return;
                 const txnPlain = txn.toObject ? txn.toObject() : { ...txn };
                 allTxns.push({

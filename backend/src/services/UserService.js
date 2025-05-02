@@ -85,6 +85,91 @@ export async function getUserWithAllCycles(userId) {
     }
 }
 
+export async function getPastCycles(userId, skip = 0, limitNum = 10) {
+    try {
+        // Validate inputs
+        if (!userId || typeof userId !== 'string') {
+            throw new Error('Invalid userId');
+        }
+        if (isNaN(skip) || skip < 0) {
+            throw new Error('Skip must be a non-negative integer');
+        }
+        if (isNaN(limitNum) || limitNum < 1) {
+            throw new Error('Limit must be a positive integer');
+        }
+
+        // Aggregation pipeline for past cycles
+        const pipeline = [
+            // Match cycles for the user that are completed or inactive
+            {
+                $match: {
+                    userId,
+                    status: 'completed'
+
+                }
+            },
+            // Lookup transactions for each cycle
+            {
+                $lookup: {
+                    from: 'transactions',
+                    let: { bcId: '$budgetCycleId' },
+                    pipeline: [
+                        {
+                            $match: {
+                                $expr: { $eq: ['$budgetCycleId', '$$bcId'] }
+                            }
+                        }
+                    ],
+                    as: 'transactions'
+                }
+            },
+            // Sort by endDate descending (most recent first)
+            {
+                $sort: { endDate: -1 }
+            },
+            // Facet for pagination and total count
+            {
+                $facet: {
+                    cycles: [
+                        { $skip: skip },
+                        { $limit: limitNum }
+                    ],
+                    totalCount: [
+                        { $count: 'totalCycles' }
+                    ]
+                }
+            }
+        ];
+
+        const result = await mongoose.model('BudgetCycle').aggregate(pipeline);
+
+        // Handle empty result
+        if (!result || result.length === 0 || !result[0].cycles) {
+            return { cycles: [], totalCycles: 0 };
+        }
+
+        // Extract cycles and total count
+        const { cycles, totalCount } = result[0];
+        const totalCycles = totalCount.length > 0 ? totalCount[0].totalCycles : 0;
+
+        // Convert to plain objects
+        const plainCycles = JSON.parse(JSON.stringify(cycles));
+
+        // Log for debugging
+        console.debug(`Fetched ${plainCycles.length} past cycles for user ${userId}, total: ${totalCycles}`);
+
+        // Ensure JSON-serializable
+        JSON.stringify(plainCycles);
+
+        return {
+            cycles: plainCycles,
+            totalCycles
+        };
+    } catch (error) {
+        console.error(`Error fetching past cycles for user ${userId}:`, error.message);
+        throw new Error(`Failed to fetch past cycles: ${error.message}`);
+    }
+}
 
 export async function getUserWithActiveCycles(email) {
     const pipeline = [

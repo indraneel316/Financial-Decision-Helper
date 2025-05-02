@@ -27,14 +27,11 @@ const SignInScreen = ({ navigation }) => {
 
         try {
             setLoading(true);
-            console.log('SignInScreen - Attempting login with:', { email, password });
             const response = await login({ email, password });
-            console.log('SignInScreen - Login response:', response);
             // Wait for state to settle (small delay to ensure context updates)
             await new Promise(resolve => setTimeout(resolve, 100));
             navigation.replace('Home'); // Use replace to avoid back navigation to SignIn
         } catch (error) {
-            console.log('SignInScreen - Login error:', error);
             Alert.alert('Sign In Failed', error.message || error.toString());
         } finally {
             setLoading(false);

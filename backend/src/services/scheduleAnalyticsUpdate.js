@@ -9,7 +9,6 @@ import user from "../models/User.js";
  */
 export async function scheduleAnalyticsUpdateForUser(userId, category) {
 
-console.log("TRACK DATA 33 ", userId)
     try {
         const result = await updateUserAnalyticsIfThresholdMet(userId);
         console.log(`Analytics updated for user ${userId} in category ${category} immediately.`);

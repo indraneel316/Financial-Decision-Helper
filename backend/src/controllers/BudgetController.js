@@ -7,7 +7,6 @@ import {
 
 export const createBudgetHandler = async (req, res) => {
     try {
-        console.log("TRACK DATA 22 ", req.body);
         const budget = await createBudget(req.body);
         res.status(201).json({ message: 'Budget created successfully', budget });
     } catch (error) {

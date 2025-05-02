@@ -40,7 +40,7 @@ const BudgetCycleSchema = new Schema({
     allocatedCommute:       { type: Number, default: 0 },
     allocatedShopping:      { type: Number, default: 0 },
     allocatedDiningOut:     { type: Number, default: 0 },
-    allocatedMedicalExpense:{ type: Number, default: 0 },
+    allocatedMedicalExpenses: { type: Number, default: 0 },
     allocatedAccommodation: { type: Number, default: 0 },
     allocatedVacation:      { type: Number, default: 0 },
     allocatedOtherExpenses: { type: Number, default: 0 },
@@ -49,7 +49,6 @@ const BudgetCycleSchema = new Schema({
     status: { type: String, enum: ['active', 'completed'], default: 'active' }
 }, { timestamps: true });
 
-// Virtual populate to link to the User model.
 BudgetCycleSchema.virtual('user', {
     ref: 'User',
     localField: 'userId',

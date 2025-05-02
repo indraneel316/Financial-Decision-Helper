@@ -4,7 +4,7 @@ import {
 
     getUserCyclesController,
     updateUserController,
-    deleteUserController, getUserAnalyticsController
+    deleteUserController, getUserAnalyticsController, getPastCycles
 } from '../controllers/UserController.js';
 import {getUserWithActiveCycles} from "../services/UserService.js";
 
@@ -21,5 +21,8 @@ router.delete('/:userId', deleteUserController);
 router.get(':/userId/data', getUserWithActiveCycles)
 
 router.get('/:userId/analytics', getUserAnalyticsController)
+
+router.get('/:userId/history', getPastCycles);
+
 
 export default router;

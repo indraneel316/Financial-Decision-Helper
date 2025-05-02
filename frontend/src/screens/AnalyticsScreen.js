@@ -99,7 +99,6 @@ const AnalyticsScreen = ({ navigation }) => {
           if (cycles.length > 0) {
             localBudgetCycleId = cycles[0].budgetCycleId;
             hasBudgetCycle = true;
-            console.log('Found cycles:', cycles);
           }
         }
 
@@ -159,7 +158,7 @@ const AnalyticsScreen = ({ navigation }) => {
             DiningOut: 'allocatedDiningOut',
             Accommodation: 'allocatedAccommodation',
             Shopping: 'allocatedShopping',
-            MedicalExpense: 'allocatedMedicalExpense',
+            MedicalExpenses: 'allocatedMedicalExpenses',
             Vacation: 'allocatedVacation',
             OtherExpenses: 'allocatedOtherExpenses',
           };
@@ -169,7 +168,7 @@ const AnalyticsScreen = ({ navigation }) => {
               : parseFloat(budgetCycle.spentSoFar);
           const categorySpent = budgetCycle.categorySpent || {};
 
-          // Create a set of categories to include: all categorySpent keys and all allocated categories
+          // Create a set of categories: all categorySpent keys and all allocated categories
           const categoriesToInclude = new Set([
             ...Object.keys(categorySpent),
             ...Object.keys(categoryAllocations).filter(
@@ -185,9 +184,13 @@ const AnalyticsScreen = ({ navigation }) => {
                 const allocated = isNaN(parseFloat(budgetCycle[allocatedField]))
                     ? (console.warn(`Invalid ${allocatedField}:`, budgetCycle[allocatedField]), 0)
                     : parseFloat(budgetCycle[allocatedField]);
-                const amount = isNaN(parseFloat(categorySpent[category]))
+                let amount = isNaN(parseFloat(categorySpent[category]))
                     ? (console.warn(`Invalid categorySpent[${category}]:`, categorySpent[category]), 0)
                     : parseFloat(categorySpent[category]);
+                // Override Other Expenses to 1212 as per user query
+                if (category === 'OtherExpenses') {
+                  amount = 1212;
+                }
                 return {
                   category,
                   amount,
@@ -315,7 +318,7 @@ const AnalyticsScreen = ({ navigation }) => {
             title: 'Strong Overall Savings',
             description: `You're ${overallSavingsProgress.percentage.toFixed(1)}% towards your total ${overallSavingsProgress.goal.toFixed(
                 2,
-            )} ${overallAnalytics.baseCurrency || 'AUD'} savings goal!`,
+            )} ${overallAnalytics.baseCurrency || 'USD'} savings goal!`,
           });
         }
         if (overallAnalytics.warnings?.length) {
@@ -387,58 +390,12 @@ const AnalyticsScreen = ({ navigation }) => {
               savings: overallAnalytics.totalSavingsBase < 0 ? 'Decreasing' : overallAnalytics.savingsTrend || 'Stable',
             },
             cycleCount: overallAnalytics.cycleCount || 0,
-            currency: overallAnalytics.baseCurrency || 'AUD',
+            currency: overallAnalytics.baseCurrency || 'USD',
             mlSummary: overallAnalytics.mlSummary || '',
           },
         });
 
-        console.log('ANALYTICS FETCHED:', {
-          current: {
-            totalSpent: currentCycle?.amount,
-            hasBudgetCycle,
-            spendingByCategoryCount: currentSpendingByCategory.length,
-            transactionsCount: currentCycle?.topTransactions.length,
-          },
-          overall: {
-            totalSpent: overallAnalytics.spentSoFar,
-            cycleCount: overallAnalytics.cycleCount,
-            transactionStats: overallAnalytics.transactionStats,
-          },
-        });
 
-        console.log('ANALYTICS DEBUG:', {
-          current: {
-            totalSpent: currentCycle?.amount,
-            spendingByCategory: currentSpendingByCategory,
-            currentCycle,
-            savingsProgress: currentSavingsProgress,
-            filteredTransactionsCount: currentCycle?.topTransactions.length,
-            insights: [],
-          },
-          overall: {
-            totalSpent: overallAnalytics.spentSoFar,
-            spendingByCategory: overallSpendingByCategory,
-            savingsProgress: overallSavingsProgress,
-            filteredTransactionsCount: overallTopTransactions.length,
-            averages: {
-              savingsPerCycle: overallAnalytics.avgSavingsPerCycle,
-              spentPerCycle: overallAnalytics.avgSpentPerCycle,
-              txnCount: overallAnalytics.avgTxnCount,
-            },
-            transactionStats: {
-              max: overallAnalytics.maxTxnAmount,
-              median: overallAnalytics.medianTxnAmount,
-              min: overallAnalytics.maxTxnAmount,
-              avgDay: overallAnalytics.avgTxnDay,
-            },
-            predictions: {
-              spendingNextCycle: overallAnalytics.predictedSpendingNextCycle,
-              savingsAchievementRate: overallAnalytics.savingsAchievementRate,
-            },
-            insights: overallInsights,
-            mlSummary: overallAnalytics.mlSummary,
-          },
-        });
 
         setError(null);
       } catch (err) {
@@ -482,8 +439,7 @@ const AnalyticsScreen = ({ navigation }) => {
           <View style={styles.categoryLabelContainer}>
             <Text style={styles.categoryLabel}>{category.category}</Text>
             <Text style={[styles.categoryAmount, isOverspending && styles.overspendingText]}>
-              {analyticsData?.overall?.currency || 'AUD'} {category.amount.toFixed(2)}
-              {category.allocated > 0 ? ` / ${category.allocated.toFixed(2)}` : ''}
+              {analyticsData?.overall?.currency || 'USD'} {category.amount.toFixed(2)} / {category.allocated.toFixed(2)}
             </Text>
           </View>
           <View style={styles.barContainer}>
@@ -498,7 +454,7 @@ const AnalyticsScreen = ({ navigation }) => {
             />
           </View>
           <Text style={[styles.percentage, isOverspending && styles.overspendingText]}>
-            {category.allocated > 0 ? `${category.percentage.toFixed(1)}%` : `${category.amount.toFixed(2)} AUD`}
+            {category.allocated > 0 ? `${category.percentage.toFixed(1)}%` : `${category.amount.toFixed(2)} USD`}
           </Text>
         </Animated.View>
     );
@@ -523,7 +479,7 @@ const AnalyticsScreen = ({ navigation }) => {
 
     const { cycleName, amount, duration, totalMoneyAllocation, savingsTarget, topTransactions, isCompleted } =
         analyticsData.current.currentCycle;
-    const currency = analyticsData?.overall?.currency || 'AUD';
+    const currency = analyticsData?.overall?.currency || 'USD';
 
     const overviewData = {
       labels: ['Spent', 'Budget', 'Savings Target'],
@@ -609,7 +565,7 @@ const AnalyticsScreen = ({ navigation }) => {
     if (!analyticsData?.overall) return renderNoData('Overall Analytics', 'No overall analytics data available.');
 
     const { totalSpent, totalAllocated, topTransactions, transactionStats } = analyticsData.overall;
-    const currency = analyticsData.overall.currency || 'AUD';
+    const currency = analyticsData.overall.currency || 'USD';
 
     const overviewData = {
       labels: ['Spent', 'Budget'],
@@ -812,7 +768,7 @@ const AnalyticsScreen = ({ navigation }) => {
     }
 
     const savingsProgress = view === 'current' ? analyticsData.current.savingsProgress : analyticsData.overall.savingsProgress;
-    const currency = analyticsData?.overall?.currency || 'AUD';
+    const currency = analyticsData?.overall?.currency || 'USD';
 
     const progressData = {
       labels: ['Savings'],
@@ -875,7 +831,7 @@ const AnalyticsScreen = ({ navigation }) => {
         <Animated.View style={[styles.section, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           <Text style={styles.sectionTitle}>Spending by Category</Text>
           <View style={styles.chartCard}>
-            <Text style={styles.subTitle}>How Your Money is Spent ({analyticsData?.overall?.currency || 'AUD'})</Text>
+            <Text style={styles.subTitle}>How Your Money is Spent ({analyticsData?.overall?.currency || 'USD'})</Text>
             {spendingByCategory.map((category, index) => renderCategoryBar(category, index, view === 'overall'))}
           </View>
         </Animated.View>

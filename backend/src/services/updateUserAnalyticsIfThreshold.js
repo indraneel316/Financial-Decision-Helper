@@ -112,7 +112,7 @@ ${Object.entries(insights.categorySummaries).length > 0 ?
             ).join('\n') : '  - No transaction data available'}
 - Warnings: ${insights.warnings.join('; ') || 'None'}
 
-Objective: Generate personalized financial insights for a budgeting app user, analyzing spending analytics and demographics, focusing on 10 categories: Entertainment, Groceries, Utilities, Commute, Shopping, DiningOut, Medical Expense, Accommodation, Vacation, Other Expenses.
+Objective: Generate personalized financial insights for a budgeting app user, analyzing spending analytics and demographics, focusing on 10 categories: Entertainment, Groceries, Utilities, Commute, Shopping, DiningOut, Medical Expenses, Accommodation, Vacation, Other Expenses.
 
 Instructions:
 

@@ -93,21 +93,13 @@ export const updateTransaction = async (transactionId, updates, io) => {
 
         // Handle isTransactionPerformedAfterRecommendation
         if (updates.hasOwnProperty('isTransactionPerformedAfterRecommendation')) {
-            console.log('Processing isTransactionPerformedAfterRecommendation:', {
-                isTransactionPerformedAfterRecommendation: transaction.isTransactionPerformedAfterRecommendation,
-                purchaseAmount: transaction.purchaseAmount,
-                purchaseCategory: transaction.purchaseCategory,
-                budgetCycleId: transaction.budgetCycleId,
-            });
 
             // Fetch BudgetCycle
-            console.log('Fetching BudgetCycle:', { budgetCycleId: transaction.budgetCycleId });
             const budgetCycle = await BudgetCycle.findOne({ budgetCycleId: transaction.budgetCycleId });
             if (!budgetCycle) {
                 console.error('Budget Cycle not found:', { budgetCycleId: transaction.budgetCycleId });
                 throw new Error('Budget Cycle not found');
             }
-            console.log('BudgetCycle fetched:', { budgetCycle });
 
             const update = {};
 

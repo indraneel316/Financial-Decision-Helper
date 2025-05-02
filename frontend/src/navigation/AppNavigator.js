@@ -8,10 +8,11 @@ import SignUpScreen from '../screens/auth/SignUpScreen';
 import HomeScreen from '../screens/HomeScreen';
 import BudgetCycleScreen from '../screens/BudgetCycleScreen';
 import TransactionScreen from '../screens/TransactionScreen';
-import RecommendationScreen from '../screens/RecommendationScreen';
+import HistoryScreen from '../screens/HistoryScreen';
 import AnalyticsScreen from '../screens/AnalyticsScreen';
 import UserSettingsScreen from '../screens/UserSettingsScreen';
-import {View,Text} from "react-native";
+import TransactionDetailsScreen from '../screens/TransactionDetailsScreen';
+import { View, Text } from 'react-native';
 
 const Stack = createStackNavigator();
 
@@ -23,7 +24,7 @@ const AppNavigator = () => {
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F5F5F5' }}>
                 <Text>Loading...</Text>
             </View>
-        ); // Show loading UI instead of null
+        );
     }
 
     return (
@@ -41,7 +42,8 @@ const AppNavigator = () => {
                         <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
                         <Stack.Screen name="BudgetCycle" component={BudgetCycleScreen} options={{ title: 'Budget Cycle' }} />
                         <Stack.Screen name="Transactions" component={TransactionScreen} options={{ title: 'Transactions' }} />
-                        <Stack.Screen name="Recommendations" component={RecommendationScreen} options={{ title: 'AI Recommendations' }} />
+                        <Stack.Screen name="History" component={HistoryScreen} options={{ title: 'History' }} />
+                        <Stack.Screen name="TransactionDetails" component={TransactionDetailsScreen} options={{ title: 'Transaction Details' }} />
                         <Stack.Screen name="Analytics" component={AnalyticsScreen} options={{ title: 'Analytics' }} />
                         <Stack.Screen name="Settings" component={UserSettingsScreen} options={{ title: 'Settings' }} />
                     </>

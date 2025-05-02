@@ -37,13 +37,6 @@ const formatCurrency = (amount, currency) => {
 // Memoized TransactionItem component
 const TransactionItem = memo(
     ({ item, expandedTransaction, toggleRecommendation, startEditing, handleDeleteTransaction, handleRecommendationSwitch, userCurrency }) => {
-      console.log("Rendering TransactionItem:", {
-        transactionId: item.transactionId,
-        recommendation: item.recommendation,
-        reasoning: item.reasoning,
-        isExpanded: expandedTransaction === item.transactionId,
-      });
-
       const hasRecommendationAndReasoning =
           item.recommendation &&
           item.recommendation !== "Recommendation pending" &&
@@ -167,7 +160,7 @@ const TransactionScreen = ({ navigation }) => {
     { name: "Commute", allocation: "", id: "4" },
     { name: "Shopping", allocation: "", id: "5" },
     { name: "DiningOut", allocation: "", id: "6" },
-    { name: "Medical Expense", allocation: "", id: "7" },
+    { name: "Medical Expenses", allocation: "", id: "7" },
     { name: "Accommodation", allocation: "", id: "8" },
     { name: "Vacation", allocation: "", id: "9" },
     { name: "Other Expenses", allocation: "", id: "10" },
@@ -179,24 +172,17 @@ const TransactionScreen = ({ navigation }) => {
 
   useEffect(() => {
     transactionsRef.current = transactions;
-    console.log("Updated transactionsRef:", transactionsRef.current);
     setFlatListRenderKey((prev) => prev + 1);
   }, [transactions]);
 
   const handleRecommendation = useCallback(
       debounce((data) => {
-        console.log("Received recommendation:", {
-          transactionId: data.transactionId,
-          recommendationText: data.recommendationText,
-          reasoning: data.reasoning,
-        });
         setTransactions((prev) => {
           const updated = prev.map((t) =>
               t.transactionId === data.transactionId
                   ? { ...t, recommendation: data.recommendationText, reasoning: data.reasoning }
                   : t
           );
-          console.log("Updated transactions:", updated);
           return [...updated];
         });
         setExpandedTransaction(data.transactionId);
@@ -278,7 +264,6 @@ const TransactionScreen = ({ navigation }) => {
           return 0;
         });
         setFilteredTransactions([...filtered]);
-        console.log("Applied filters and sort, new filteredTransactions:", filtered);
       },
       []
   );
@@ -288,35 +273,23 @@ const TransactionScreen = ({ navigation }) => {
   }, [transactions, filterCategory, sortBy, applyFiltersAndSort]);
 
   useEffect(() => {
-    console.log("filteredTransactions changed:", filteredTransactions);
   }, [filteredTransactions]);
 
   const loadTransactions = useCallback(
       async (page = 1, refresh = false) => {
         if (!user || !token || !currentBudgetCycle?.budgetCycleId) {
-          console.log("loadTransactions validation failed:", {
-            user: !!user,
-            token: !!token,
-            budgetCycleId: currentBudgetCycle?.budgetCycleId,
-          });
           Alert.alert("Error", "Missing user or budget cycle data");
           return;
         }
         setIsLoading(!refresh);
         setIsRefreshing(refresh);
         try {
-          console.log("loadTransactions starting:", {
-            budgetCycleId: currentBudgetCycle.budgetCycleId,
-            page,
-            limit,
-          });
           const response = await transactionService.getTransactionsByBudgetCycle(
               currentBudgetCycle.budgetCycleId,
               token,
               page,
               limit
           );
-          console.log("loadTransactions raw response:", response);
           const { transactions: fetchedTransactions, pagination } = response;
           const mappedTransactions = Array.isArray(fetchedTransactions)
               ? fetchedTransactions.map((t) => ({
@@ -337,7 +310,6 @@ const TransactionScreen = ({ navigation }) => {
                 reasoning: t.reasoning || null,
               }))
               : [];
-          console.log("Mapped transactions:", mappedTransactions);
           setTransactions(mappedTransactions);
           setCurrentPage(pagination.currentPage);
           setTotalPages(pagination.totalPages);
@@ -414,9 +386,8 @@ const TransactionScreen = ({ navigation }) => {
         isTransactionPerformedAfterRecommendation: "no",
         currency: userCurrency,
       };
-      console.log("Adding transaction:", transactionData);
       const response = await transactionService.createTransaction(transactionData, token);
-      console.log("Transaction created:", response.data);
+
       const newTrans = {
         ...response.data.transaction,
         recommendation: null,
@@ -511,13 +482,11 @@ const TransactionScreen = ({ navigation }) => {
         return;
       }
 
-      console.log("Editing transaction:", updatedFields);
       const response = await transactionService.updateTransaction(
           editTransaction.transactionId,
           updatedFields,
           token
       );
-      console.log("Transaction updated:", response.data);
       const updatedTrans = {
         ...response.data.transaction,
         recommendation: response.data.transaction.recommendation || null,
@@ -555,7 +524,6 @@ const TransactionScreen = ({ navigation }) => {
         style: "destructive",
         onPress: async () => {
           try {
-            console.log("Deleting transaction:", { transactionId });
             await transactionService.deleteTransaction(transactionId, token);
             setTransactions((prev) => prev.filter((t) => t.transactionId !== transactionId));
             setTotalTransactions((prev) => prev - 1);
@@ -640,16 +608,9 @@ const TransactionScreen = ({ navigation }) => {
   };
 
   const debugState = () => {
-    console.log("Debug - Current state:", {
-      transactions,
-      filteredTransactions,
-      subscribedIds: Array.from(subscribedIdsRef.current),
-      pagination: { currentPage, totalPages, totalTransactions, limit },
-      userCurrency,
-    });
     Alert.alert(
         "Debug Info",
-        `Transactions: ${transactions.length}, Subscribed IDs: ${subscribedIdsRef.current.size}, Page: ${currentPage}/${totalPages}, Total: ${totalTransactions}, Currency: ${userCurrency}`
+        `Transactions: ${transactions.length}, Subscribed IDs: ${subscribedIdsRef.current.size}, Page: ${currentPage}/${totalPages}, Total: ${totalTransactions}, Currency: ${userCurrency}, BudgetCycleId: ${currentBudgetCycle?.budgetCycleId || "N/A"}`
     );
   };
 
@@ -758,7 +719,7 @@ const TransactionScreen = ({ navigation }) => {
       <SafeAreaView style={styles.container}>
         {renderHeader()}
         {isAddingTransaction ? (
-            <View style={styles.addTransactionContainer}>
+            <ScrollView contentContainerStyle={styles.addTransactionContainer}>
               <Text style={styles.sectionTitle}>Add New Transaction</Text>
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Description</Text>
@@ -819,9 +780,9 @@ const TransactionScreen = ({ navigation }) => {
               <TouchableOpacity style={styles.saveButton} onPress={handleAddTransaction}>
                 <Text style={styles.saveButtonText}>Save Transaction</Text>
               </TouchableOpacity>
-            </View>
+            </ScrollView>
         ) : isEditingTransaction ? (
-            <View style={styles.addTransactionContainer}>
+            <ScrollView contentContainerStyle={styles.addTransactionContainer}>
               <Text style={styles.sectionTitle}>Edit Transaction</Text>
               <View style={styles.inputContainer}>
                 <Text style={styles.label}>Description</Text>
@@ -904,7 +865,7 @@ const TransactionScreen = ({ navigation }) => {
                   <Text style={styles.saveButtonText}>Update Transaction</Text>
                 </TouchableOpacity>
               </View>
-            </View>
+            </ScrollView>
         ) : (
             <>
               {renderFilters()}
@@ -940,7 +901,6 @@ const TransactionScreen = ({ navigation }) => {
                         refreshControl={
                           <RefreshControl refreshing={isRefreshing} onRefresh={() => loadTransactions(1, true)} />
                         }
-                        onLayout={() => console.log("FlatList rendered with data:", filteredTransactions)}
                     />
                     {totalPages > 1 && renderPaginationControls()}
                   </>
@@ -1033,7 +993,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: "center",
     marginTop: 10,
-    flex: 1,
+    minWidth: 150, // Prevent button from shrinking
   },
   cancelButton: {
     backgroundColor: "#E53935",
@@ -1047,6 +1007,7 @@ const styles = StyleSheet.create({
   buttonContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
+    marginTop: 10,
   },
   filterContainer: {
     backgroundColor: "#FFF",
