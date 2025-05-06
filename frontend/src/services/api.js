@@ -4,45 +4,89 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Base URL for the backend API
 const API_BASE_URL = 'http://10.0.0.115:5001/api';
 
+// Create axios instance with default config
+const api = axios.create({
+  baseURL: API_BASE_URL,
+  timeout: 10000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    console.error('API Error:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
+    return Promise.reject(error);
+  }
+);
+
 // API service for user-related operations
 export const userService = {
   register: async (userData) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/signup`, userData);
+      console.log('Registering user with data:', userData);
+      const response = await api.post('/auth/signup', userData);
+      console.log('Registration response:', response.data);
       return response.data;
     } catch (error) {
-      throw error.response ? error.response.data : error.message;
+      console.error('Registration error:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      }
+      throw new Error(error.message || 'Failed to register user');
     }
   },
 
   // Login a user
   login: async (credentials) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/auth/signin`, credentials);
+      const response = await api.post('/auth/signin', credentials);
       return response.data;
     } catch (error) {
-      throw error.response ? error.response.data : error.message;
+      if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      }
+      throw new Error(error.message || 'Failed to login');
     }
   },
 
   // Get user profile
   getProfile: async (userId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/users/${userId}`, {
+      const response = await api.get(`/users/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
     } catch (error) {
-      throw error.response ? error.response.data : error.message;
+      if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      }
+      throw new Error(error.message || 'Failed to get profile');
     }
   },
 
   updateProfile: async (userId, userData, token) => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/users/${userId}`, userData);
+      const response = await api.put(`/users/${userId}`, userData, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       return response.data;
     } catch (error) {
-      throw error.response ? error.response.data : error.message;
+      if (error.response?.data?.error) {
+        throw new Error(error.response.data.error);
+      }
+      throw new Error(error.message || 'Failed to update profile');
     }
   }
 };
@@ -69,7 +113,7 @@ export const budgetService = {
         ...budgetData,
         currency
       };
-      const response = await axios.post(`${API_BASE_URL}/budget-cycles`, payload, {
+      const response = await api.post('/budget-cycles', payload, {
         headers: {
           Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -86,7 +130,7 @@ export const budgetService = {
 
   getBudgetCycles: async (userId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/budgetcycles/user/${userId}`, {
+      const response = await api.get(`/budgetcycles/user/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -97,7 +141,7 @@ export const budgetService = {
 
   getBudgetCycle: async (cycleId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/budgetcycles/${cycleId}`, {
+      const response = await api.get(`/budgetcycles/${cycleId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -127,7 +171,7 @@ export const budgetService = {
         ...budgetData,
         currency
       };
-      const response = await axios.put(`${API_BASE_URL}/budget-cycles/${budgetData.budgetCycleId}`, payload, {
+      const response = await api.put(`/budget-cycles/${budgetData.budgetCycleId}`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -138,7 +182,7 @@ export const budgetService = {
 
   deleteBudgetCycle: async (cycleId, token) => {
     try {
-      const response = await axios.delete(`${API_BASE_URL}/budget-cycles/${cycleId}`, {
+      const response = await api.delete(`/budget-cycles/${cycleId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -151,7 +195,7 @@ export const budgetService = {
 export const transactionService = {
   createTransaction: async (data, token) => {
     try {
-      const response = await axios.post(`${API_BASE_URL}/transactions`, data, {
+      const response = await api.post('/transactions', data, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -171,7 +215,7 @@ export const transactionService = {
   // Get paginated transactions for a budget cycle
   getTransactionsByBudgetCycle: async (cycleId, token, page = 1, limit = 10) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/transactions/budget-cycle/${cycleId}`, {
+      const response = await api.get(`/transactions/budget-cycle/${cycleId}`, {
         headers: { Authorization: `Bearer ${token}` },
         params: { page, limit },
       });
@@ -183,7 +227,7 @@ export const transactionService = {
 
   getTransactionsByUser: async (userId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/transactions/user/${userId}`, {
+      const response = await api.get(`/transactions/user/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -194,7 +238,7 @@ export const transactionService = {
 
   getTransaction: async (transactionId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/transactions/${transactionId}`, {
+      const response = await api.get(`/transactions/${transactionId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -205,7 +249,7 @@ export const transactionService = {
 
   updateTransaction: async (transactionId, transactionData, token) => {
     try {
-      return await axios.put(`${API_BASE_URL}/transactions/${transactionId}`, transactionData, {
+      return await api.put(`/transactions/${transactionId}`, transactionData, {
         headers: { Authorization: `Bearer ${token}` }
       });
     } catch (error) {
@@ -215,7 +259,7 @@ export const transactionService = {
 
   deleteTransaction: async (transactionId, token) => {
     try {
-      const response = await axios.delete(`${API_BASE_URL}/transactions/${transactionId}`, {
+      const response = await api.delete(`/transactions/${transactionId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -228,7 +272,7 @@ export const transactionService = {
 export const recommendationService = {
   getRecommendations: async (userId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/recommendations/user/${userId}`, {
+      const response = await api.get(`/recommendations/user/${userId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -239,7 +283,7 @@ export const recommendationService = {
 
   approveRecommendation: async (recommendationId, token) => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/recommendations/${recommendationId}/approve`, {}, {
+      const response = await api.put(`/recommendations/${recommendationId}/approve`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -250,7 +294,7 @@ export const recommendationService = {
 
   delayRecommendation: async (recommendationId, token) => {
     try {
-      const response = await axios.put(`${API_BASE_URL}/recommendations/${recommendationId}/delay`, {}, {
+      const response = await api.put(`/recommendations/${recommendationId}/delay`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
       return response.data;
@@ -263,7 +307,7 @@ export const recommendationService = {
 export const analyticsService = {
   getSpendingByCategory: async (userId, cycleId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/analytics/spending-by-category`, {
+      const response = await api.get('/analytics/spending-by-category', {
         params: { userId, cycleId },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -275,7 +319,7 @@ export const analyticsService = {
 
   getMonthlySpending: async (userId, year, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/analytics/monthly-spending`, {
+      const response = await api.get('/analytics/monthly-spending', {
         params: { userId, year },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -287,7 +331,7 @@ export const analyticsService = {
 
   getSavingsProgress: async (userId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/analytics/savings-progress`, {
+      const response = await api.get('/analytics/savings-progress', {
         params: { userId },
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -299,7 +343,7 @@ export const analyticsService = {
 
   getBehavioralInsights: async (userId, token) => {
     try {
-      const response = await axios.get(`${API_BASE_URL}/analytics/behavioral-insights`, {
+      const response = await api.get('/analytics/behavioral-insights', {
         params: { userId },
         headers: { Authorization: `Bearer ${token}` }
       });

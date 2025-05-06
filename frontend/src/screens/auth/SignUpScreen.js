@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState } from 'react';
 import {
     View,
     Text,
@@ -11,39 +11,68 @@ import {
     Platform,
     ScrollView
 } from 'react-native';
-import { AuthContext } from '../../contexts/AuthContext';
+import { useAuth } from '../../contexts/AuthContext';
+
 const SignUpScreen = ({ navigation }) => {
-    const [name, setName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
+    const [formData, setFormData] = useState({
+        name: '',
+        email: '',
+        password: '',
+        confirmPassword: ''
+    });
     const [loading, setLoading] = useState(false);
-    const { register } = useContext(AuthContext);
+    const { register } = useAuth();
+
+    const validateInputs = () => {
+        if (!formData.name || !formData.email || !formData.password || !formData.confirmPassword) {
+            Alert.alert('Error', 'Please fill in all fields');
+            return false;
+        }
+
+        if (formData.password !== formData.confirmPassword) {
+            Alert.alert('Error', 'Passwords do not match');
+            return false;
+        }
+
+        if (formData.password.length < 6) {
+            Alert.alert('Error', 'Password must be at least 6 characters long');
+            return false;
+        }
+
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(formData.email)) {
+            Alert.alert('Error', 'Please enter a valid email address');
+            return false;
+        }
+
+        return true;
+    };
 
     const handleSignUp = async () => {
-        if (!name || !email || !password || !confirmPassword) {
-            Alert.alert('Error', 'Please fill in all fields');
-            return;
-        }
-
-        if (password !== confirmPassword) {
-            Alert.alert('Error', 'Passwords do not match');
-            return;
-        }
+        if (!validateInputs()) return;
 
         try {
             setLoading(true);
-            await register({ name, email, password });
-            Alert.alert(
-                'Success',
-                'Account created successfully! Please sign in.',
-                [{ text: 'OK', onPress: () => navigation.navigate('SignIn') }]
-            );
+            const { confirmPassword, ...userData } = formData;
+            await register(userData);
+            // Navigation will be handled automatically by AppNavigator
+            // which will show OnboardingScreen for new users
         } catch (error) {
-            Alert.alert('Sign Up Failed', error.toString());
+            console.error('SignUp error:', error);
+            Alert.alert(
+                'Sign Up Failed',
+                error.message || 'An error occurred during sign up. Please try again.'
+            );
         } finally {
             setLoading(false);
         }
+    };
+
+    const handleChange = (field, value) => {
+        setFormData(prev => ({
+            ...prev,
+            [field]: value
+        }));
     };
 
     return (
@@ -63,8 +92,9 @@ const SignUpScreen = ({ navigation }) => {
                         <TextInput
                             style={styles.input}
                             placeholder="Enter your full name"
-                            value={name}
-                            onChangeText={setName}
+                            value={formData.name}
+                            onChangeText={(text) => handleChange('name', text)}
+                            autoCapitalize="words"
                         />
                     </View>
 
@@ -73,8 +103,8 @@ const SignUpScreen = ({ navigation }) => {
                         <TextInput
                             style={styles.input}
                             placeholder="Enter your email"
-                            value={email}
-                            onChangeText={setEmail}
+                            value={formData.email}
+                            onChangeText={(text) => handleChange('email', text)}
                             keyboardType="email-address"
                             autoCapitalize="none"
                         />
@@ -85,8 +115,8 @@ const SignUpScreen = ({ navigation }) => {
                         <TextInput
                             style={styles.input}
                             placeholder="Create a password"
-                            value={password}
-                            onChangeText={setPassword}
+                            value={formData.password}
+                            onChangeText={(text) => handleChange('password', text)}
                             secureTextEntry
                         />
                     </View>
@@ -96,14 +126,14 @@ const SignUpScreen = ({ navigation }) => {
                         <TextInput
                             style={styles.input}
                             placeholder="Confirm your password"
-                            value={confirmPassword}
-                            onChangeText={setConfirmPassword}
+                            value={formData.confirmPassword}
+                            onChangeText={(text) => handleChange('confirmPassword', text)}
                             secureTextEntry
                         />
                     </View>
 
                     <TouchableOpacity
-                        style={styles.button}
+                        style={[styles.button, loading && styles.buttonDisabled]}
                         onPress={handleSignUp}
                         disabled={loading}
                     >
@@ -181,6 +211,9 @@ const styles = StyleSheet.create({
         padding: 15,
         alignItems: 'center',
         marginTop: 10,
+    },
+    buttonDisabled: {
+        opacity: 0.7,
     },
     buttonText: {
         color: '#fff',

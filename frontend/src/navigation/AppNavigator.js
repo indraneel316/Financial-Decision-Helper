@@ -5,6 +5,7 @@ import { useContext } from 'react';
 import { AuthContext } from '../contexts/AuthContext';
 import SignInScreen from '../screens/auth/SignInScreen';
 import SignUpScreen from '../screens/auth/SignUpScreen';
+import OnboardingScreen from '../screens/OnboardingScreen';
 import HomeScreen from '../screens/HomeScreen';
 import BudgetCycleScreen from '../screens/BudgetCycleScreen';
 import TransactionScreen from '../screens/TransactionScreen';
@@ -30,7 +31,7 @@ const AppNavigator = () => {
     return (
         <NavigationContainer>
             <Stack.Navigator
-                initialRouteName={user ? 'Home' : 'SignIn'}
+                initialRouteName={user ? (user.isNewUser ? 'Onboarding' : 'Home') : 'SignIn'}
                 screenOptions={{
                     headerStyle: { backgroundColor: '#4CAF50' },
                     headerTintColor: '#fff',
@@ -39,13 +40,23 @@ const AppNavigator = () => {
             >
                 {user ? (
                     <>
-                        <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
-                        <Stack.Screen name="BudgetCycle" component={BudgetCycleScreen} options={{ title: 'Budget Cycle' }} />
-                        <Stack.Screen name="Transactions" component={TransactionScreen} options={{ title: 'Transactions' }} />
-                        <Stack.Screen name="History" component={HistoryScreen} options={{ title: 'History' }} />
-                        <Stack.Screen name="TransactionDetails" component={TransactionDetailsScreen} options={{ title: 'Transaction Details' }} />
-                        <Stack.Screen name="Analytics" component={AnalyticsScreen} options={{ title: 'Analytics' }} />
-                        <Stack.Screen name="Settings" component={UserSettingsScreen} options={{ title: 'Settings' }} />
+                        {user.isNewUser ? (
+                            <Stack.Screen 
+                                name="Onboarding" 
+                                component={OnboardingScreen} 
+                                options={{ headerShown: false }} 
+                            />
+                        ) : (
+                            <>
+                                <Stack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
+                                <Stack.Screen name="BudgetCycle" component={BudgetCycleScreen} options={{ title: 'Budget Cycle' }} />
+                                <Stack.Screen name="Transactions" component={TransactionScreen} options={{ title: 'Transactions' }} />
+                                <Stack.Screen name="History" component={HistoryScreen} options={{ title: 'History' }} />
+                                <Stack.Screen name="TransactionDetails" component={TransactionDetailsScreen} options={{ title: 'Transaction Details' }} />
+                                <Stack.Screen name="Analytics" component={AnalyticsScreen} options={{ title: 'Analytics' }} />
+                                <Stack.Screen name="Settings" component={UserSettingsScreen} options={{ title: 'Settings' }} />
+                            </>
+                        )}
                     </>
                 ) : (
                     <>
